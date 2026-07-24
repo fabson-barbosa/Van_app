@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaiVem — Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --ink:#10231e;
+  --paper:#f4f1ea;
+  --card:#ffffff;
+  --line:rgba(16,35,30,.10);
+  --line-2:rgba(16,35,30,.16);
+  --muted:#5d6b65;
+  --hint:#8a958f;
+  --brand:#0f6e56;
+  --brand-2:#1d9e75;
+  --brand-soft:#e1f5ee;
+  --amber:#ba7517;
+  --amber-soft:#faeeda;
+  --danger:#a32d2d;
+  --danger-soft:#fceaea;
+  --info:#185fa5;
+  --info-soft:#e6f1fb;
+  --sun:#efb742;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{
+  font-family:'Plus Jakarta Sans',sans-serif;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, #15403320, transparent),
+    radial-gradient(900px 500px at -10% 110%, #ba751712, transparent),
+    #ece8df;
+  color:var(--ink);
+  min-height:100vh;
+  padding:48px 20px 80px;
+  -webkit-font-smoothing:antialiased;
+}
+.headline{max-width:1180px;margin:0 auto 40px;text-align:center;}
+.headline .kicker{
+  font-family:'Sora',sans-serif;font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--brand);font-weight:600;display:inline-flex;align-items:center;gap:8px;
+  background:var(--brand-soft);padding:7px 16px;border-radius:100px;
+}
+.headline h1{
+  font-family:'Sora',sans-serif;font-weight:700;font-size:clamp(30px,5vw,46px);
+  letter-spacing:-.02em;margin:18px 0 10px;line-height:1.05;
+}
+.headline p{color:var(--muted);font-size:16px;max-width:560px;margin:0 auto;line-height:1.6;}
+
+.stage{
+  max-width:1180px;margin:0 auto;
+  display:grid;grid-template-columns:repeat(3,1fr);gap:30px;
+  align-items:start;justify-items:center;
+}
+@media(max-width:980px){.stage{grid-template-columns:1fr;gap:60px;}}
+
+.label{
+  font-family:'Sora',sans-serif;font-weight:600;font-size:13px;letter-spacing:.04em;
+  color:var(--ink);text-align:center;margin-bottom:18px;display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.label span{font-weight:400;font-size:12px;color:var(--hint);letter-spacing:0;}
+.col{display:flex;flex-direction:column;align-items:center;width:100%;}
+
+/* ---- phone ---- */
+.phone{
+  width:300px;height:620px;background:#0b1916;border-radius:46px;
+  padding:11px;position:relative;
+  box-shadow:
+    0 1px 0 2px #1c2e29 inset,
+    0 30px 60px -20px rgba(11,25,22,.55),
+    0 10px 25px -15px rgba(11,25,22,.6);
+}
+.phone::after{
+  content:"";position:absolute;top:18px;left:50%;transform:translateX(-50%);
+  width:96px;height:26px;background:#0b1916;border-radius:100px;z-index:30;
+}
+.screen{
+  width:100%;height:100%;background:var(--paper);border-radius:36px;overflow:hidden;
+  position:relative;display:flex;flex-direction:column;
+}
+.statusbar{
+  height:44px;display:flex;align-items:flex-end;justify-content:space-between;
+  padding:0 22px 6px;font-size:12px;font-weight:600;flex-shrink:0;z-index:5;
+}
+.statusbar .icons{display:flex;gap:6px;align-items:center;font-size:13px;}
+.body{flex:1;overflow:hidden;position:relative;}
+.scroll{height:100%;overflow:hidden;}
+
+/* generic */
+.appbar{padding:6px 20px 14px;display:flex;align-items:center;justify-content:space-between;}
+.appbar h2{font-family:'Sora',sans-serif;font-size:19px;font-weight:600;letter-spacing:-.01em;}
+.appbar .sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.av{width:38px;height:38px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;font-family:'Sora',sans-serif;}
+
+.bnav{
+  position:absolute;bottom:0;left:0;right:0;height:64px;background:rgba(255,255,255,.92);
+  backdrop-filter:blur(12px);border-top:1px solid var(--line);
+  display:flex;align-items:center;justify-content:space-around;padding-bottom:8px;z-index:6;
+}
+.bnav a{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--hint);font-size:9.5px;font-weight:600;text-decoration:none;}
+.bnav a i{font-size:21px;}
+.bnav a.on{color:var(--brand);}
+
+/* ============ MOTORISTA ============ */
+.m .statusbar{color:#fff;}
+.m-top{
+  background:linear-gradient(160deg,#0f6e56,#0b4f3f);color:#fff;
+  padding:6px 20px 22px;border-radius:0 0 26px 26px;position:relative;overflow:hidden;
+}
+.m-top::before{content:"";position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.06);}
+.m-route{display:flex;align-items:center;justify-content:space-between;position:relative;}
+.m-route h2{font-family:'Sora',sans-serif;font-size:18px;font-weight:600;}
+.m-route .tag{font-size:11px;background:rgba(255,255,255,.15);padding:3px 9px;border-radius:100px;margin-bottom:6px;display:inline-block;}
+.live{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);padding:6px 11px;border-radius:100px;font-size:11px;font-weight:600;}
+.live .dot{width:7px;height:7px;border-radius:50%;background:#7ff0c0;box-shadow:0 0 0 0 rgba(127,240,192,.7);animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(127,240,192,.6);}70%{box-shadow:0 0 0 8px rgba(127,240,192,0);}100%{box-shadow:0 0 0 0 rgba(127,240,192,0);}}
+.m-stats{display:flex;gap:10px;margin-top:16px;position:relative;}
+.m-stats .s{flex:1;background:rgba(255,255,255,.12);border-radius:16px;padding:11px 13px;}
+.m-stats .s .k{font-size:10px;opacity:.8;font-weight:500;}
+.m-stats .s .v{font-family:'Sora',sans-serif;font-size:21px;font-weight:700;margin-top:2px;}
+.m-stats .s .v small{font-size:12px;font-weight:500;opacity:.8;}
+
+.timeline{padding:16px 18px 0;}
+.tl-h{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--hint);margin-bottom:12px;}
+.stop{display:flex;gap:12px;position:relative;padding-bottom:16px;}
+.stop:not(:last-child)::before{content:"";position:absolute;left:13px;top:30px;bottom:-2px;width:2px;background:var(--line-2);}
+.stop .pin{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:'Sora',sans-serif;z-index:2;}
+.pin.done{background:var(--brand);color:#fff;}
+.pin.now{background:var(--info);color:#fff;box-shadow:0 0 0 4px var(--info-soft);}
+.pin.next{background:#fff;border:2px solid var(--line-2);color:var(--hint);}
+.pin.skip{background:var(--amber-soft);color:var(--amber);}
+.stop .info{flex:1;padding-top:1px;}
+.stop .info .t{font-size:13.5px;font-weight:600;}
+.stop .info .d{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.stop.done .info{opacity:.5;}
+.stop.skip .t{text-decoration:line-through;color:var(--hint);}
+.stop.skip .d{color:var(--amber);}
+.card-now{background:#fff;border:1px solid var(--info-soft);border-left:3px solid var(--info);border-radius:0 14px 14px 0;padding:11px 13px;margin-left:-2px;flex:1;}
+.card-now .t{font-size:13.5px;font-weight:700;color:var(--info);}
+.card-now .d{font-size:11.5px;color:var(--info);margin-top:2px;}
+.card-now .badge{margin-top:8px;display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--brand);background:var(--brand-soft);padding:4px 9px;border-radius:100px;}
+
+.m-actions{padding:6px 18px 78px;}
+.btn-main{width:100%;border:none;background:var(--info);color:#fff;font-family:'Plus Jakarta Sans';font-weight:700;font-size:15px;padding:15px;border-radius:16px;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 8px 18px -8px rgba(24,95,165,.7);}
+.row2{display:flex;gap:9px;margin-top:9px;}
+.btn-s{flex:1;border:1px solid var(--line-2);background:#fff;font-family:'Plus Jakarta Sans';font-weight:600;font-size:12px;padding:11px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--ink);}
+.btn-danger{width:100%;margin-top:9px;border:1px solid #e9c4c4;background:var(--danger-soft);color:var(--danger);font-family:'Plus Jakarta Sans';font-weight:700;font-size:13px;padding:12px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:7px;}
+
+/* ============ PAIS ============ */
+.p .statusbar{color:var(--ink);}
+.p-hero{padding:4px 20px 0;}
+.p-greet{font-size:13px;color:var(--muted);}
+.p-greet b{color:var(--ink);}
+.p-map{
+  margin:14px 20px 0;height:152px;border-radius:22px;position:relative;overflow:hidden;
+  background:
+    linear-gradient(135deg,#dbe7e2,#cdddd5);
+  border:1px solid var(--line);
+}
+.p-map .grid{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(15,110,86,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(15,110,86,.10) 1px,transparent 1px);
+  background-size:26px 26px;}
+.p-map .road{position:absolute;left:-10%;right:-10%;top:58%;height:14px;background:#fff;transform:rotate(-9deg);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);}
+.p-map .road2{position:absolute;left:46%;top:-10%;bottom:-10%;width:13px;background:#fff;transform:rotate(7deg);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);}
+.p-map .van{position:absolute;left:30%;top:48%;width:36px;height:36px;border-radius:13px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:19px;box-shadow:0 6px 14px -4px rgba(15,110,86,.7);z-index:3;}
+.p-map .van::after{content:"";position:absolute;width:48px;height:48px;border-radius:50%;border:2px solid rgba(15,110,86,.4);animation:ring 2s infinite;}
+@keyframes ring{0%{transform:scale(.6);opacity:1;}100%{transform:scale(1.5);opacity:0;}}
+.p-map .home{position:absolute;right:20%;top:24%;width:28px;height:28px;border-radius:9px;background:#fff;display:flex;align-items:center;justify-content:center;color:var(--info);font-size:15px;box-shadow:0 3px 8px rgba(0,0,0,.1);z-index:3;}
+
+.eta-card{margin:16px 20px 0;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:16px 18px;box-shadow:0 12px 24px -18px rgba(16,35,30,.4);}
+.eta-card .head{display:flex;align-items:center;gap:11px;}
+.eta-card .ic{width:42px;height:42px;border-radius:14px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:22px;}
+.eta-card .head .nm{font-family:'Sora';font-weight:600;font-size:15px;}
+.eta-card .head .st{font-size:11.5px;color:var(--brand);font-weight:600;margin-top:1px;}
+.eta-big{display:flex;align-items:baseline;gap:8px;margin-top:14px;}
+.eta-big .n{font-family:'Sora';font-weight:700;font-size:42px;letter-spacing:-.03em;line-height:1;}
+.eta-big .u{font-size:14px;color:var(--muted);font-weight:600;}
+.eta-bar{margin-top:14px;height:7px;background:var(--line);border-radius:100px;overflow:hidden;}
+.eta-bar i{display:block;height:100%;width:68%;background:linear-gradient(90deg,var(--brand),var(--brand-2));border-radius:100px;}
+.eta-foot{display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--hint);font-weight:600;}
+
+.feed{padding:18px 20px 78px;}
+.feed-h{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--hint);margin-bottom:12px;}
+.ev{display:flex;gap:11px;padding-bottom:15px;position:relative;}
+.ev:not(:last-child)::before{content:"";position:absolute;left:13px;top:28px;bottom:0;width:2px;background:var(--line);}
+.ev .ei{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;z-index:2;}
+.ei.g{background:var(--brand-soft);color:var(--brand);}
+.ei.b{background:var(--info-soft);color:var(--info);}
+.ei.n{background:#eceae3;color:var(--hint);}
+.ev .ec .t{font-size:13px;font-weight:600;}
+.ev .ec .tm{font-size:11px;color:var(--hint);margin-top:1px;}
+.notify{margin:0 20px;display:flex;align-items:center;gap:10px;background:var(--amber-soft);border-radius:14px;padding:11px 13px;}
+.notify i{font-size:18px;color:var(--amber);}
+.notify .x{font-size:12px;color:#7a4d0f;font-weight:600;flex:1;}
+.notify b{color:var(--amber);font-size:11px;font-weight:700;}
+
+/* ============ ADMIN ============ */
+.a .statusbar{color:var(--ink);}
+.a-bar{padding:4px 20px 0;display:flex;align-items:center;justify-content:space-between;}
+.a-bar h2{font-family:'Sora';font-size:20px;font-weight:600;}
+.a-bar .sub{font-size:12px;color:var(--muted);margin-top:1px;}
+.metrics{padding:14px 20px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.metric{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 13px;}
+.metric .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;margin-bottom:7px;}
+.metric .v{font-family:'Sora';font-weight:700;font-size:22px;letter-spacing:-.02em;}
+.metric .k{font-size:10.5px;color:var(--muted);font-weight:500;margin-top:1px;}
+.metric .chip{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:100px;margin-top:6px;display:inline-block;}
+.chip.up{background:var(--brand-soft);color:var(--brand);}
+.chip.dn{background:var(--danger-soft);color:var(--danger);}
+
+.sec-h{padding:16px 20px 9px;display:flex;align-items:center;justify-content:between;}
+.sec-h .tt{font-size:13px;font-weight:700;font-family:'Sora';flex:1;}
+.sec-h a{font-size:11px;color:var(--brand);font-weight:600;text-decoration:none;}
+.routes{padding:0 20px 78px;display:flex;flex-direction:column;gap:9px;}
+.route{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:11px 13px;display:flex;align-items:center;gap:11px;}
+.route .di{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.di.live{background:var(--brand-soft);color:var(--brand);}
+.di.idle{background:#eceae3;color:var(--hint);}
+.di.warn{background:var(--amber-soft);color:var(--amber);}
+.route .meta{flex:1;}
+.route .meta .nm{font-size:13.5px;font-weight:700;font-family:'Sora';}
+.route .meta .dr{font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:5px;}
+.route .right{text-align:right;}
+.route .right .st{font-size:10px;font-weight:700;padding:3px 8px;border-radius:100px;}
+.st.l{background:var(--brand-soft);color:var(--brand);}
+.st.w{background:var(--amber-soft);color:var(--amber);}
+.st.i{background:#eceae3;color:var(--hint);}
+.route .right .pr{font-size:11px;color:var(--hint);margin-top:5px;font-weight:600;}
+.foot{max-width:1180px;margin:50px auto 0;text-align:center;color:var(--hint);font-size:12.5px;font-family:'Sora';}
+.foot b{color:var(--brand);font-weight:600;}
+</style>
+</head>
+<body>
+
+<div class="headline">
+  <span class="kicker"><i class="ti ti-bus" style="font-size:14px;"></i> VaiVem · transporte escolar</span>
+  <h1>Três apps, um sistema</h1>
+  <p>Mockups de alta fidelidade dos perfis Motorista, Responsável e Gestor — com ETA dinâmico, varredura de segurança e operação em tempo real.</p>
+</div>
+
+<div class="stage">
+
+  <!-- ============ MOTORISTA ============ -->
+  <div class="col">
+    <div class="label">Motorista <span>rota em execução</span></div>
+    <div class="phone m">
+      <div class="screen">
+        <div class="statusbar"><span>7:24</span><span class="icons"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+        <div class="body"><div class="scroll">
+
+          <div class="m-top">
+            <div class="m-route">
+              <div>
+                <span class="tag">Manhã · ida</span>
+                <h2>Escola Dom Bosco</h2>
+              </div>
+              <div class="live"><span class="dot"></span>Ao vivo</div>
+            </div>
+            <div class="m-stats">
+              <div class="s"><div class="k">Embarcados</div><div class="v">4<small> / 9</small></div></div>
+              <div class="s"><div class="k">Próxima parada</div><div class="v">3<small> min</small></div></div>
+              <div class="s"><div class="k">Chegada</div><div class="v">7:41</div></div>
+            </div>
+          </div>
+
+          <div class="timeline">
+            <div class="tl-h">Paradas</div>
+
+            <div class="stop done"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">R. das Acácias, 120</div><div class="d">Lucas M. · 07:12</div></div></div>
+            <div class="stop done"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">Av. Brasil, 410</div><div class="d">Ana P., Theo P. · 07:19</div></div></div>
+
+            <div class="stop"><div class="pin now"><i class="ti ti-map-pin"></i></div>
+              <div class="card-now">
+                <div class="t">R. Tiradentes, 88</div>
+                <div class="d">Sofia R. · chegando em 3 min</div>
+                <span class="badge"><i class="ti ti-send" style="font-size:11px;"></i> Aviso enviado aos pais</span>
+              </div>
+            </div>
+
+            <div class="stop"><div class="pin next">4</div><div class="info"><div class="t">R. das Flores, 23</div><div class="d">Miguel S. · ETA 8 min</div></div></div>
+            <div class="stop skip"><div class="pin skip"><i class="ti ti-x" style="font-size:13px;"></i></div><div class="info"><div class="t">Pç. da Matriz, 5</div><div class="d">Ausência avisada · parada pulada</div></div></div>
+          </div>
+
+          <div class="m-actions">
+            <button class="btn-main"><i class="ti ti-scan"></i> Check-in · Parada 3</button>
+            <div class="row2">
+              <button class="btn-s"><i class="ti ti-traffic-cone"></i> Trânsito</button>
+              <button class="btn-s"><i class="ti ti-message-2"></i> Avisar pais</button>
+            </div>
+            <button class="btn-danger"><i class="ti ti-urgent"></i> Emergência</button>
+          </div>
+
+        </div></div>
+        <div class="bnav">
+          <a class="on"><i class="ti ti-route"></i>Rota</a>
+          <a><i class="ti ti-users"></i>Alunos</a>
+          <a><i class="ti ti-tool"></i>Frota</a>
+          <a><i class="ti ti-user"></i>Perfil</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PAIS ============ -->
+  <div class="col">
+    <div class="label">Responsável <span>acompanhando a van</span></div>
+    <div class="phone p">
+      <div class="screen">
+        <div class="statusbar"><span>7:24</span><span class="icons"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+        <div class="body"><div class="scroll">
+
+          <div class="appbar">
+            <div>
+              <div class="p-greet">Bom dia, <b>Carla</b></div>
+              <h2 style="font-family:'Sora';font-size:18px;font-weight:600;margin-top:2px;">Sofia está a caminho</h2>
+            </div>
+            <div class="av" style="background:var(--brand);color:#fff;">S</div>
+          </div>
+
+          <div class="p-map">
+            <div class="grid"></div>
+            <div class="road"></div>
+            <div class="road2"></div>
+            <div class="van"><i class="ti ti-bus"></i></div>
+            <div class="home"><i class="ti ti-home"></i></div>
+          </div>
+
+          <div class="eta-card">
+            <div class="head">
+              <div class="ic"><i class="ti ti-bus"></i></div>
+              <div>
+                <div class="nm">Van 02 · Sr. Antônio</div>
+                <div class="st">A caminho da sua parada</div>
+              </div>
+            </div>
+            <div class="eta-big"><span class="n">3</span><span class="u">min para chegar</span></div>
+            <div class="eta-bar"><i></i></div>
+            <div class="eta-foot"><span>Saiu da Av. Brasil</span><span>R. Tiradentes, 88</span></div>
+          </div>
+
+          <div class="notify" style="margin-top:16px;">
+            <i class="ti ti-bell-ringing"></i>
+            <div class="x"><b>Chegando!</b> Leve a Sofia ao ponto.</div>
+          </div>
+
+          <div class="feed">
+            <div class="feed-h">Hoje</div>
+            <div class="ev"><div class="ei b"><i class="ti ti-map-pin"></i></div><div class="ec"><div class="t">Van se aproximando</div><div class="tm">7:24 · agora</div></div></div>
+            <div class="ev"><div class="ei g"><i class="ti ti-users"></i></div><div class="ec"><div class="t">Parada anterior concluída</div><div class="tm">7:19 · Av. Brasil</div></div></div>
+            <div class="ev"><div class="ei n"><i class="ti ti-route"></i></div><div class="ec"><div class="t">Rota iniciada</div><div class="tm">7:05 · Escola Dom Bosco</div></div></div>
+          </div>
+
+        </div></div>
+        <div class="bnav">
+          <a class="on"><i class="ti ti-map-2"></i>Acompanhar</a>
+          <a><i class="ti ti-calendar"></i>Faltas</a>
+          <a><i class="ti ti-credit-card"></i>Pagar</a>
+          <a><i class="ti ti-message"></i>Chat</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ADMIN ============ -->
+  <div class="col">
+    <div class="label">Gestor <span>painel do transportador</span></div>
+    <div class="phone a">
+      <div class="screen">
+        <div class="statusbar"><span>7:24</span><span class="icons"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+        <div class="body"><div class="scroll">
+
+          <div class="a-bar">
+            <div>
+              <h2>Transportes Silva</h2>
+              <div class="sub">Visão geral · quinta, 04 jun</div>
+            </div>
+            <div class="av" style="background:var(--info-soft);color:var(--info);"><i class="ti ti-bell" style="font-size:18px;"></i></div>
+          </div>
+
+          <div class="metrics">
+            <div class="metric">
+              <div class="ic" style="background:var(--brand-soft);color:var(--brand);"><i class="ti ti-bus"></i></div>
+              <div class="v">3<span style="font-size:14px;color:var(--hint);font-weight:600;"> ativas</span></div>
+              <div class="k">Rotas agora</div>
+              <span class="chip up">no horário</span>
+            </div>
+            <div class="metric">
+              <div class="ic" style="background:var(--info-soft);color:var(--info);"><i class="ti ti-users"></i></div>
+              <div class="v">68</div>
+              <div class="k">Alunos a bordo</div>
+              <span class="chip up">+4 hoje</span>
+            </div>
+            <div class="metric">
+              <div class="ic" style="background:#e8f3de;color:#3b6d11;"><i class="ti ti-cash"></i></div>
+              <div class="v">R$ 14k</div>
+              <div class="k">Recebido no mês</div>
+              <span class="chip up">82% pago</span>
+            </div>
+            <div class="metric">
+              <div class="ic" style="background:var(--danger-soft);color:var(--danger);"><i class="ti ti-alert-triangle"></i></div>
+              <div class="v">5</div>
+              <div class="k">Inadimplentes</div>
+              <span class="chip dn">cobrar</span>
+            </div>
+          </div>
+
+          <div class="sec-h">
+            <div class="tt">Frota em operação</div>
+            <a>Ver tudo</a>
+          </div>
+          <div class="routes">
+            <div class="route">
+              <div class="di live"><i class="ti ti-bus"></i></div>
+              <div class="meta"><div class="nm">Manhã · Dom Bosco</div><div class="dr"><i class="ti ti-user" style="font-size:12px;"></i> Antônio · 4/9 a bordo</div></div>
+              <div class="right"><span class="st l">ao vivo</span><div class="pr">ETA 7:41</div></div>
+            </div>
+            <div class="route">
+              <div class="di live"><i class="ti ti-bus"></i></div>
+              <div class="meta"><div class="nm">Manhã · Sta. Cecília</div><div class="dr"><i class="ti ti-user" style="font-size:12px;"></i> Marcos · 11/11 a bordo</div></div>
+              <div class="right"><span class="st l">ao vivo</span><div class="pr">ETA 7:38</div></div>
+            </div>
+            <div class="route">
+              <div class="di warn"><i class="ti ti-alert-triangle"></i></div>
+              <div class="meta"><div class="nm">Manhã · Pio XII</div><div class="dr"><i class="ti ti-clock" style="font-size:12px;"></i> trânsito · atraso 6 min</div></div>
+              <div class="right"><span class="st w">atrasada</span><div class="pr">ETA 7:52</div></div>
+            </div>
+            <div class="route">
+              <div class="di idle"><i class="ti ti-bus"></i></div>
+              <div class="meta"><div class="nm">Tarde · Dom Bosco</div><div class="dr"><i class="ti ti-user" style="font-size:12px;"></i> Antônio · backup ativo</div></div>
+              <div class="right"><span class="st i">12:30</span><div class="pr">agendada</div></div>
+            </div>
+          </div>
+
+        </div></div>
+        <div class="bnav">
+          <a class="on"><i class="ti ti-layout-dashboard"></i>Painel</a>
+          <a><i class="ti ti-route"></i>Rotas</a>
+          <a><i class="ti ti-cash"></i>Financeiro</a>
+          <a><i class="ti ti-settings"></i>Config</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="foot">VaiVem — mockup conceitual · <b>ETA dinâmico</b>, skipping de paradas, varredura anti-esquecimento e gestão multi-tenant</div>
+
+</body>
+</html>

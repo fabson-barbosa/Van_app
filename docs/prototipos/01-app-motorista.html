@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaiVem — App do Motorista · Protótipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --ink:#10231e; --paper:#f4f1ea; --card:#fff; --line:rgba(16,35,30,.10); --line2:rgba(16,35,30,.16);
+  --muted:#5d6b65; --hint:#8a958f; --brand:#0f6e56; --brand2:#1d9e75; --brand-soft:#e1f5ee;
+  --amber:#ba7517; --amber-soft:#faeeda; --danger:#a32d2d; --danger-soft:#fceaea;
+  --info:#185fa5; --info-soft:#e6f1fb; --sun:#efb742;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{
+  font-family:'Plus Jakarta Sans',sans-serif;
+  background:radial-gradient(1200px 600px at 80% -10%,#15403320,transparent),radial-gradient(900px 500px at -10% 110%,#ba751712,transparent),#ece8df;
+  color:var(--ink);padding:48px 24px 80px;-webkit-font-smoothing:antialiased;
+}
+.head{max-width:1320px;margin:0 auto 44px;text-align:center;}
+.head .kicker{font-family:'Sora';font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--brand);font-weight:600;background:var(--brand-soft);padding:7px 16px;border-radius:100px;display:inline-flex;align-items:center;gap:8px;}
+.head h1{font-family:'Sora';font-weight:700;font-size:clamp(28px,4.5vw,42px);letter-spacing:-.02em;margin:18px 0 10px;}
+.head p{color:var(--muted);font-size:15.5px;max-width:600px;margin:0 auto;line-height:1.6;}
+
+.grid{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:34px 28px;justify-items:center;}
+@media(max-width:1180px){.grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:880px){.grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:600px){.grid{grid-template-columns:1fr;}}
+
+.cap{font-family:'Sora';font-weight:600;font-size:13px;color:var(--ink);text-align:center;margin-bottom:16px;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.cap b{background:var(--ink);color:#fff;width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-family:'Plus Jakarta Sans';font-weight:700;margin-bottom:4px;}
+.cap span{font-weight:400;font-size:11.5px;color:var(--hint);}
+.unit{display:flex;flex-direction:column;align-items:center;}
+
+.phone{width:288px;height:600px;background:#0b1916;border-radius:44px;padding:10px;position:relative;
+  box-shadow:0 1px 0 2px #1c2e29 inset,0 26px 50px -22px rgba(11,25,22,.5),0 8px 20px -14px rgba(11,25,22,.55);}
+.phone::after{content:"";position:absolute;top:17px;left:50%;transform:translateX(-50%);width:88px;height:24px;background:#0b1916;border-radius:100px;z-index:30;}
+.screen{width:100%;height:100%;border-radius:35px;overflow:hidden;position:relative;display:flex;flex-direction:column;background:var(--paper);}
+.sb{height:42px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 5px;font-size:11.5px;font-weight:600;flex-shrink:0;z-index:5;}
+.sb .ic{display:flex;gap:5px;align-items:center;font-size:12px;}
+.body{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
+
+.bnav{height:58px;background:rgba(255,255,255,.95);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-around;padding-bottom:6px;flex-shrink:0;}
+.bnav a{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--hint);font-size:9px;font-weight:600;text-decoration:none;}
+.bnav a i{font-size:19px;}
+.bnav a.on{color:var(--brand);}
+
+/* ===== 1 LOGIN ===== */
+.login{background:linear-gradient(160deg,#0f6e56,#0b4f3f);height:100%;display:flex;flex-direction:column;}
+.login .sb,.login .sb .ic{color:#fff;}
+.login .mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 30px;}
+.login .logo{width:72px;height:72px;border-radius:22px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:32px;}
+.login h2{font-family:'Sora';font-weight:700;font-size:32px;color:#fff;margin-top:18px;}
+.login .tag{font-size:14px;color:rgba(255,255,255,.85);margin-top:4px;}
+.login .form{width:100%;margin-top:38px;display:flex;flex-direction:column;gap:11px;}
+.inp{height:50px;background:rgba(255,255,255,.96);border-radius:15px;display:flex;align-items:center;padding:0 16px;gap:10px;color:var(--hint);font-size:14px;}
+.inp i{font-size:18px;}
+.login .enter{height:50px;background:var(--sun);border-radius:15px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:var(--ink);margin-top:6px;}
+.login .fp{text-align:center;color:rgba(255,255,255,.85);font-size:12.5px;font-weight:500;margin-top:14px;}
+
+/* ===== generic scroll body ===== */
+.scr{flex:1;overflow:hidden;}
+.hd{padding:6px 18px 12px;}
+.hd .greet{font-size:12.5px;color:var(--muted);}
+.hd .greet b{color:var(--ink);}
+.hd h2{font-family:'Sora';font-weight:600;font-size:20px;margin-top:3px;}
+
+/* ===== 2 SELEÇÃO ===== */
+.rcard{background:var(--card);border:1px solid var(--line);border-radius:17px;padding:14px;margin:0 18px 11px;}
+.rcard.on{border:2px solid var(--brand);}
+.rcard .top{display:flex;align-items:center;gap:11px;}
+.rcard .ic{width:42px;height:42px;border-radius:13px;background:var(--paper);display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;}
+.rcard.on .ic{background:var(--brand-soft);}
+.rcard .meta .nm{font-family:'Sora';font-weight:700;font-size:14px;}
+.rcard .meta .dt{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.rcard .start{margin-top:12px;height:44px;background:var(--brand);border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:700;font-size:14px;}
+
+/* ===== 3 ROTA ===== */
+.r3 .sb,.r3 .sb .ic{color:#fff;}
+.ghead{background:linear-gradient(135deg,#0f6e56,#0b4f3f);padding:2px 18px 14px;border-radius:0 0 22px 22px;color:#fff;}
+.ghead .row{display:flex;align-items:center;justify-content:space-between;}
+.gh-tag{font-size:10.5px;background:rgba(255,255,255,.16);padding:3px 9px;border-radius:100px;display:inline-block;margin-bottom:6px;}
+.gh-route{font-family:'Sora';font-weight:600;font-size:18px;}
+.live{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.16);padding:6px 11px;border-radius:100px;font-size:11px;font-weight:700;}
+.live .dot{width:7px;height:7px;border-radius:50%;background:#7ff0c0;animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(127,240,192,.6);}70%{box-shadow:0 0 0 7px rgba(127,240,192,0);}100%{box-shadow:0 0 0 0 transparent;}}
+.stats{display:flex;gap:9px;margin-top:11px;}
+.stats .s{flex:1;background:rgba(255,255,255,.12);border-radius:14px;padding:9px 11px;}
+.stats .s .k{font-size:10px;opacity:.85;font-weight:500;}
+.stats .s .v{font-family:'Sora';font-weight:700;font-size:19px;margin-top:1px;}
+.stats .s .v small{font-size:11px;font-weight:500;opacity:.85;}
+.tl{padding:11px 16px 0;}
+.tl-h{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--hint);margin-bottom:9px;}
+.stop{display:flex;gap:11px;position:relative;padding-bottom:11px;}
+.stop:not(:last-child)::before{content:"";position:absolute;left:13px;top:28px;bottom:-2px;width:2px;background:var(--line2);}
+.pin{width:27px;height:27px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:'Sora';z-index:2;}
+.pin.done{background:var(--brand);color:#fff;} .pin.now{background:var(--info);color:#fff;box-shadow:0 0 0 4px var(--info-soft);}
+.pin.next{background:#fff;border:2px solid var(--line2);color:var(--hint);} .pin.skip{background:var(--amber-soft);color:var(--amber);}
+.stop .info{padding-top:1px;} .stop.done .info{opacity:.5;}
+.stop .info .t{font-size:13px;font-weight:600;} .stop .info .d{font-size:11px;color:var(--muted);margin-top:2px;}
+.stop.skip .t{text-decoration:line-through;color:var(--hint);} .stop.skip .d{color:var(--amber);}
+.cnow{background:var(--info-soft);border-left:3px solid var(--info);border-radius:0 13px 13px 0;padding:10px 12px;flex:1;}
+.cnow .t{font-size:13px;font-weight:700;color:var(--info);} .cnow .d{font-size:11px;color:var(--info);margin-top:2px;}
+.cnow .b{margin-top:7px;display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;color:var(--brand);background:var(--brand-soft);padding:4px 8px;border-radius:100px;}
+.acts{padding:6px 16px 10px;}
+.btnM{height:50px;background:var(--info);border-radius:15px;display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:700;font-size:14.5px;box-shadow:0 7px 16px -8px rgba(24,95,165,.7);}
+.row2{display:flex;gap:8px;margin-top:8px;}
+.btnS{flex:1;height:42px;background:#fff;border:1px solid var(--line2);border-radius:12px;display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:12px;}
+.btnD{height:44px;background:var(--danger-soft);border:1px solid #e9c4c4;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--danger);font-weight:700;font-size:13px;margin-top:8px;}
+
+/* ===== 4 CHECK-IN ===== */
+.r4{background:var(--ink);height:100%;display:flex;flex-direction:column;}
+.r4 .sb,.r4 .sb .ic{color:#fff;}
+.r4 .hd4{padding:4px 18px 8px;color:#fff;}
+.r4 .hd4 .p{font-size:12px;color:rgba(255,255,255,.7);}
+.r4 .hd4 h2{font-family:'Sora';font-weight:600;font-size:20px;margin-top:2px;}
+.r4 .scan{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#fff;}
+.r4 .frame{width:200px;height:200px;border:3px dashed var(--sun);border-radius:26px;display:flex;align-items:center;justify-content:center;font-size:60px;position:relative;}
+.r4 .frame::before,.r4 .frame::after{content:"";position:absolute;width:34px;height:34px;border:3px solid #fff;}
+.r4 .frame::before{top:-3px;left:-3px;border-right:none;border-bottom:none;border-radius:14px 0 0 0;}
+.r4 .frame::after{bottom:-3px;right:-3px;border-left:none;border-top:none;border-radius:0 0 14px 0;}
+.r4 .hint{font-size:14px;font-weight:500;} .r4 .or{font-size:12px;color:var(--hint);}
+.r4 .panel{background:var(--paper);border-radius:26px 26px 0 0;padding:18px;display:flex;flex-direction:column;gap:11px;}
+.r4 .stu{background:#fff;border:1px solid var(--line);border-radius:15px;padding:11px 13px;display:flex;align-items:center;gap:11px;}
+.r4 .stu .av{width:44px;height:44px;border-radius:13px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Sora';font-size:16px;}
+.r4 .stu .nm{font-family:'Sora';font-weight:700;font-size:14px;} .r4 .stu .al{font-size:11px;color:var(--amber);margin-top:2px;display:flex;align-items:center;gap:4px;}
+.r4 .stu .wait{margin-left:auto;font-size:9.5px;font-weight:700;background:var(--amber-soft);color:var(--amber);padding:4px 8px;border-radius:100px;}
+.r4 .conf{height:50px;background:var(--brand);border-radius:15px;display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-weight:700;font-size:15px;}
+.r4 .man{height:42px;border:1px solid var(--line2);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:600;font-size:13px;}
+
+/* ===== 5 VARREDURA ===== */
+.r5 .scr{display:flex;flex-direction:column;}
+.warnhead{background:var(--amber-soft);padding:18px;text-align:center;}
+.warnhead .i{font-size:30px;color:var(--amber);} .warnhead h3{font-family:'Sora';font-weight:600;font-size:16px;color:var(--amber);margin-top:4px;}
+.warnhead p{font-size:12.5px;color:#7a4d0f;margin-top:2px;}
+.timer{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;border-bottom:1px solid var(--line);}
+.timer .t{font-family:'Sora';font-weight:700;font-size:18px;color:var(--danger);}
+.timer .x{font-size:12px;color:var(--muted);}
+.checks{padding:8px 0;flex:1;}
+.chk{display:flex;align-items:center;gap:11px;padding:12px 18px;}
+.chk .bx{width:24px;height:24px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;}
+.chk .bx.on{background:var(--brand-soft);color:var(--brand);} .chk .bx.off{background:#fff;border:1px solid var(--line2);}
+.chk .lb{font-size:13.5px;}
+.r5 .foot{padding:16px 18px;border-top:1px solid var(--line);}
+.r5 .lock{height:52px;background:#e7e3da;border-radius:15px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--hint);font-weight:700;font-size:14.5px;}
+.r5 .note{text-align:center;font-size:11px;color:var(--hint);margin-top:8px;}
+
+/* ===== 6 BROADCAST ===== */
+.bsec{padding:14px 18px 0;} .bsec h4{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--hint);margin-bottom:10px;}
+.tpl{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 13px;margin-bottom:9px;display:flex;align-items:center;gap:11px;}
+.tpl .i{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.tpl .tx{flex:1;} .tpl .tx .t{font-size:13px;font-weight:600;} .tpl .tx .d{font-size:11px;color:var(--muted);margin-top:1px;}
+.tpl .go{font-size:18px;color:var(--hint);}
+.audience{margin:4px 18px 0;background:var(--info-soft);border-radius:13px;padding:11px 13px;display:flex;align-items:center;gap:9px;}
+.audience i{font-size:17px;color:var(--info);} .audience .x{font-size:11.5px;color:var(--info);font-weight:600;}
+
+/* ===== 7 EMERGÊNCIA ===== */
+.r7{background:linear-gradient(170deg,#7a1f1f,#4f1414);height:100%;display:flex;flex-direction:column;}
+.r7 .sb,.r7 .sb .ic{color:#fff;}
+.r7 .mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 28px;text-align:center;color:#fff;}
+.r7 .pulse{width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:54px;position:relative;}
+.r7 .pulse::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.5);animation:ring2 1.8s infinite;}
+@keyframes ring2{0%{transform:scale(1);opacity:1;}100%{transform:scale(1.5);opacity:0;}}
+.r7 h2{font-family:'Sora';font-weight:700;font-size:24px;margin-top:22px;}
+.r7 p{font-size:13.5px;color:rgba(255,255,255,.85);margin-top:8px;line-height:1.5;}
+.r7 .grid7{width:100%;margin-top:26px;display:flex;flex-direction:column;gap:10px;}
+.r7 .ebtn{height:52px;background:#fff;border-radius:15px;display:flex;align-items:center;justify-content:center;gap:9px;color:var(--danger);font-weight:700;font-size:15px;}
+.r7 .ebtn.alt{background:rgba(255,255,255,.14);color:#fff;}
+.r7 .cancel{text-align:center;color:rgba(255,255,255,.8);font-size:13px;font-weight:600;margin-top:18px;}
+
+/* ===== 8 FROTA ===== */
+.fcard{background:#fff;border:1px solid var(--line);border-radius:15px;padding:13px;margin:0 18px 10px;}
+.fcard .top{display:flex;align-items:center;gap:11px;}
+.fcard .i{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.fcard .nm{font-family:'Sora';font-weight:700;font-size:13.5px;} .fcard .km{font-size:11px;color:var(--muted);margin-top:1px;}
+.fcard .st{margin-left:auto;font-size:9.5px;font-weight:700;padding:4px 9px;border-radius:100px;}
+.st.ok{background:var(--brand-soft);color:var(--brand);} .st.soon{background:var(--amber-soft);color:var(--amber);} .st.due{background:var(--danger-soft);color:var(--danger);}
+.fbar{height:6px;background:var(--line);border-radius:100px;margin-top:11px;overflow:hidden;}
+.fbar i{display:block;height:100%;border-radius:100px;}
+.fmeta{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--hint);font-weight:600;}
+.foot{max-width:1320px;margin:48px auto 0;text-align:center;color:var(--hint);font-size:12.5px;font-family:'Sora';}
+.foot b{color:var(--brand);font-weight:600;}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <span class="kicker"><i class="ti ti-bus" style="font-size:14px;"></i> VaiVem · app do motorista</span>
+  <h1>Protótipo completo — Motorista</h1>
+  <p>As oito telas do fluxo do motorista, do login à varredura de segurança de fim de rota, com ETA dinâmico, check-in NFC e alertas.</p>
+</div>
+
+<div class="grid">
+
+  <!-- 1 LOGIN -->
+  <div class="unit">
+    <div class="cap"><b>1</b>Login <span>acesso do motorista</span></div>
+    <div class="phone"><div class="screen"><div class="login">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="mid">
+        <div class="logo">🚌</div>
+        <h2>VaiVem</h2>
+        <div class="tag">Transporte escolar seguro</div>
+        <div class="form">
+          <div class="inp"><i class="ti ti-id"></i> CPF ou matrícula</div>
+          <div class="inp"><i class="ti ti-lock"></i> Senha</div>
+          <div class="enter">Entrar</div>
+          <div class="fp">Esqueci minha senha</div>
+        </div>
+      </div>
+    </div></div></div>
+  </div>
+
+  <!-- 2 SELEÇÃO -->
+  <div class="unit">
+    <div class="cap"><b>2</b>Seleção de rota <span>escolher o turno</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div class="greet">Olá, <b>Antônio</b> 👋</div><h2>Escolha o turno</h2></div>
+        <div class="scr">
+          <div class="rcard on">
+            <div class="top"><div class="ic">🌅</div><div class="meta"><div class="nm">Manhã · Dom Bosco</div><div class="dt">9 alunos · 07:05</div></div></div>
+            <div class="start"><i class="ti ti-player-play-filled" style="font-size:13px;"></i> Iniciar turno</div>
+          </div>
+          <div class="rcard"><div class="top"><div class="ic">🌅</div><div class="meta"><div class="nm">Manhã · Sta. Cecília</div><div class="dt">11 alunos · 07:00</div></div></div></div>
+          <div class="rcard"><div class="top"><div class="ic">🌆</div><div class="meta"><div class="nm">Tarde · Dom Bosco</div><div class="dt">9 alunos · 12:30</div></div></div></div>
+          <div class="rcard"><div class="top"><div class="ic">🌆</div><div class="meta"><div class="nm">Tarde · Pio XII</div><div class="dt">8 alunos · 13:15</div></div></div></div>
+        </div>
+      </div>
+      <div class="bnav"><a class="on"><i class="ti ti-route"></i>Rota</a><a><i class="ti ti-users"></i>Alunos</a><a><i class="ti ti-tool"></i>Frota</a><a><i class="ti ti-user"></i>Perfil</a></div>
+    </div></div>
+  </div>
+
+  <!-- 3 ROTA EM EXECUÇÃO -->
+  <div class="unit">
+    <div class="cap"><b>3</b>Rota em execução <span>ETA + paradas</span></div>
+    <div class="phone"><div class="screen r3">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="ghead">
+          <div class="row"><div><span class="gh-tag">Manhã · ida</span><div class="gh-route">Escola Dom Bosco</div></div><div class="live"><span class="dot"></span>Ao vivo</div></div>
+          <div class="stats"><div class="s"><div class="k">Embarcados</div><div class="v">4<small> / 9</small></div></div><div class="s"><div class="k">Próxima</div><div class="v">3<small> min</small></div></div><div class="s"><div class="k">Chegada</div><div class="v">7:41</div></div></div>
+        </div>
+        <div class="scr"><div class="tl">
+          <div class="tl-h">PARADAS</div>
+          <div class="stop done"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">R. das Acácias, 120</div><div class="d">Lucas M. · 07:12</div></div></div>
+          <div class="stop done"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">Av. Brasil, 410</div><div class="d">Ana P., Theo P. · 07:19</div></div></div>
+          <div class="stop"><div class="pin now"><i class="ti ti-map-pin"></i></div><div class="cnow"><div class="t">R. Tiradentes, 88</div><div class="d">Sofia R. · chegando em 3 min</div><span class="b"><i class="ti ti-send" style="font-size:10px;"></i> Aviso enviado</span></div></div>
+          <div class="stop"><div class="pin next">4</div><div class="info"><div class="t">R. das Flores, 23</div><div class="d">Miguel S. · ETA 8 min</div></div></div>
+          <div class="stop skip"><div class="pin skip"><i class="ti ti-x" style="font-size:12px;"></i></div><div class="info"><div class="t">Pç. da Matriz, 5</div><div class="d">Ausência avisada · pulada</div></div></div>
+        </div></div>
+        <div class="acts">
+          <div class="btnM"><i class="ti ti-scan"></i> Check-in · Parada 3</div>
+          <div class="row2"><div class="btnS"><i class="ti ti-traffic-cone"></i> Trânsito</div><div class="btnS"><i class="ti ti-message-2"></i> Avisar pais</div></div>
+          <div class="btnD"><i class="ti ti-urgent"></i> Emergência</div>
+        </div>
+      </div>
+      <div class="bnav"><a class="on"><i class="ti ti-route"></i>Rota</a><a><i class="ti ti-users"></i>Alunos</a><a><i class="ti ti-tool"></i>Frota</a><a><i class="ti ti-user"></i>Perfil</a></div>
+    </div></div>
+  </div>
+
+  <!-- 4 CHECK-IN -->
+  <div class="unit">
+    <div class="cap"><b>4</b>Check-in NFC/QR <span>embarque do aluno</span></div>
+    <div class="phone"><div class="screen"><div class="r4">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="hd4"><div class="p">Parada 3 · R. Tiradentes, 88</div><h2>Check-in da Sofia</h2></div>
+      <div class="scan">
+        <div class="frame">📷</div>
+        <div class="hint">Aproxime a tag da mochila</div>
+        <div class="or">ou leia o QR Code</div>
+      </div>
+      <div class="panel">
+        <div class="stu"><div class="av">S</div><div><div class="nm">Sofia Rodrigues</div><div class="al"><i class="ti ti-alert-triangle" style="font-size:12px;"></i> 7 anos · alergia a amendoim</div></div><div class="wait">aguardando</div></div>
+        <div class="conf"><i class="ti ti-check"></i> Confirmar embarque</div>
+        <div class="man">Marcar manualmente</div>
+      </div>
+    </div></div></div>
+  </div>
+
+  <!-- 5 VARREDURA -->
+  <div class="unit">
+    <div class="cap"><b>5</b>Varredura final <span>anti-esquecimento</span></div>
+    <div class="phone"><div class="screen r5">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body"><div class="scr">
+        <div class="warnhead"><div class="i"><i class="ti ti-shield-lock"></i></div><h3>Verificação obrigatória</h3><p>Confira o veículo antes de finalizar</p></div>
+        <div class="timer"><i class="ti ti-clock" style="color:var(--danger);"></i><span class="x">Confirme em</span><span class="t">02:48</span><span class="x">ou a escola é avisada</span></div>
+        <div class="checks">
+          <div class="chk"><div class="bx on"><i class="ti ti-check"></i></div><div class="lb">9 de 9 crianças com check-out</div></div>
+          <div class="chk"><div class="bx off"></div><div class="lb">Conferi os bancos da frente</div></div>
+          <div class="chk"><div class="bx off"></div><div class="lb">Conferi os bancos de trás</div></div>
+          <div class="chk"><div class="bx off"></div><div class="lb">Conferi o porta-malas</div></div>
+        </div>
+        <div class="foot"><div class="lock"><i class="ti ti-lock"></i> Veículo vazio — finalizar</div><div class="note">O botão libera após marcar os 3 itens</div></div>
+      </div></div>
+    </div></div>
+  </div>
+
+  <!-- 6 BROADCAST -->
+  <div class="unit">
+    <div class="cap"><b>6</b>Avisar pais <span>broadcast 1 clique</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div class="greet">Comunicação rápida</div><h2>Avisar responsáveis</h2></div>
+        <div class="audience"><i class="ti ti-users-group"></i><span class="x">Será enviado a 5 famílias com alunos pendentes na rota</span></div>
+        <div class="scr"><div class="bsec"><h4>MODELOS RÁPIDOS</h4>
+          <div class="tpl"><div class="i" style="background:var(--amber-soft);color:var(--amber);">🚦</div><div class="tx"><div class="t">Trânsito intenso</div><div class="d">"Atraso por trânsito na via"</div></div><i class="ti ti-chevron-right go"></i></div>
+          <div class="tpl"><div class="i" style="background:var(--info-soft);color:var(--info);">🏫</div><div class="tx"><div class="t">Escola atrasou a saída</div><div class="d">"Aguardando liberação da escola"</div></div><i class="ti ti-chevron-right go"></i></div>
+          <div class="tpl"><div class="i" style="background:var(--danger-soft);color:var(--danger);">🔧</div><div class="tx"><div class="t">Falha mecânica</div><div class="d">"Veículo de apoio acionado"</div></div><i class="ti ti-chevron-right go"></i></div>
+          <div class="tpl"><div class="i" style="background:var(--brand-soft);color:var(--brand);">✏️</div><div class="tx"><div class="t">Mensagem personalizada</div><div class="d">Escrever um aviso livre</div></div><i class="ti ti-chevron-right go"></i></div>
+        </div></div>
+      </div>
+      <div class="bnav"><a class="on"><i class="ti ti-route"></i>Rota</a><a><i class="ti ti-users"></i>Alunos</a><a><i class="ti ti-tool"></i>Frota</a><a><i class="ti ti-user"></i>Perfil</a></div>
+    </div></div>
+  </div>
+
+  <!-- 7 EMERGÊNCIA -->
+  <div class="unit">
+    <div class="cap"><b>7</b>Emergência <span>botão de pânico</span></div>
+    <div class="phone"><div class="screen"><div class="r7">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="mid">
+        <div class="pulse">🆘</div>
+        <h2>Acionar emergência</h2>
+        <p>Sua localização será enviada à escola, à central e aos contatos de emergência das famílias da rota.</p>
+        <div class="grid7">
+          <div class="ebtn"><i class="ti ti-phone-call"></i> Acidente — acionar tudo</div>
+          <div class="ebtn alt"><i class="ti ti-engine"></i> Pane / parada técnica</div>
+          <div class="ebtn alt"><i class="ti ti-first-aid-kit"></i> Mal-estar de aluno</div>
+        </div>
+        <div class="cancel">Cancelar</div>
+      </div>
+    </div></div></div>
+  </div>
+
+  <!-- 8 FROTA -->
+  <div class="unit">
+    <div class="cap"><b>8</b>Diário de frota <span>manutenção</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div class="greet">Van 02 · ABC-1D23</div><h2>Manutenção</h2></div>
+        <div class="scr" style="padding-top:4px;">
+          <div class="fcard"><div class="top"><div class="i" style="background:var(--danger-soft);color:var(--danger);">🛢️</div><div><div class="nm">Troca de óleo</div><div class="km">Vence em 180 km</div></div><div class="st due">trocar</div></div><div class="fbar"><i style="width:92%;background:var(--danger);"></i></div><div class="fmeta"><span>9.820 km</span><span>10.000 km</span></div></div>
+          <div class="fcard"><div class="top"><div class="i" style="background:var(--amber-soft);color:var(--amber);">🛞</div><div><div class="nm">Rodízio de pneus</div><div class="km">Faltam 1.400 km</div></div><div class="st soon">em breve</div></div><div class="fbar"><i style="width:65%;background:var(--amber);"></i></div><div class="fmeta"><span>8.600 km</span><span>10.000 km</span></div></div>
+          <div class="fcard"><div class="top"><div class="i" style="background:var(--brand-soft);color:var(--brand);">📋</div><div><div class="nm">Vistoria Detran</div><div class="km">Vence 12/ago</div></div><div class="st ok">em dia</div></div><div class="fbar"><i style="width:38%;background:var(--brand);"></i></div><div class="fmeta"><span>—</span><span>68 dias</span></div></div>
+          <div class="fcard"><div class="top"><div class="i" style="background:var(--brand-soft);color:var(--brand);">🧯</div><div><div class="nm">Extintor</div><div class="km">Validade 03/2027</div></div><div class="st ok">em dia</div></div></div>
+        </div>
+      </div>
+      <div class="bnav"><a><i class="ti ti-route"></i>Rota</a><a><i class="ti ti-users"></i>Alunos</a><a class="on"><i class="ti ti-tool"></i>Frota</a><a><i class="ti ti-user"></i>Perfil</a></div>
+    </div></div>
+  </div>
+
+</div>
+
+<div class="foot">VaiVem — protótipo do app do motorista · 8 telas · <b>ETA dinâmico</b>, check-in NFC, varredura anti-esquecimento, broadcast e diário de frota</div>
+
+</body>
+</html>

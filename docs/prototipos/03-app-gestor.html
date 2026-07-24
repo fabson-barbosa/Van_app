@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaiVem — App do Gestor · Protótipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.1.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#ffff9e;            /* fundo amarelo claro */
+  --bg2:#fbfb86;          /* amarelo levemente mais fundo p/ gradiente */
+  --ink:#0c0c0a;          /* preto (texto sobre amarelo) */
+  --soft-ink:#3a3a30;     /* preto suavizado p/ texto secundário sobre amarelo */
+  --card:#0c0c0a;         /* superfícies pretas */
+  --card2:#1f1f1a;        /* preto elevado */
+  --gray:#4a4a42;         /* cinza p/ botões secundários */
+  --gray-soft:#e4e48f;    /* "cinza claro" no contexto amarelo (chip sobre fundo) */
+  --line:rgba(12,12,10,.18);
+  --line-dark:rgba(255,255,255,.14);
+  --yellow:#ffff00;       /* amarelo puro p/ texto sobre preto */
+  --white:#ffffff;
+  --hint:#6a6a5c;
+  --pos:#2f7d32;          /* verde sutil só p/ micro-indicador opcional */
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{
+  font-family:'Plus Jakarta Sans',sans-serif;
+  background:#cfcf6a;
+  color:var(--ink);padding:48px 24px 80px;-webkit-font-smoothing:antialiased;
+}
+.head{max-width:1320px;margin:0 auto 44px;text-align:center;}
+.head .kicker{font-family:'Sora';font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--yellow);font-weight:700;background:var(--ink);padding:8px 16px;border-radius:100px;display:inline-flex;align-items:center;gap:8px;}
+.head h1{font-family:'Sora';font-weight:800;font-size:clamp(28px,4.5vw,42px);letter-spacing:-.02em;margin:18px 0 10px;color:var(--ink);}
+.head p{color:var(--soft-ink);font-size:15.5px;max-width:620px;margin:0 auto;line-height:1.6;}
+
+.grid{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:34px 28px;justify-items:center;}
+@media(max-width:1180px){.grid{grid-template-columns:repeat(3,1fr);}}
+@media(max-width:880px){.grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:600px){.grid{grid-template-columns:1fr;}}
+
+.cap{font-family:'Sora';font-weight:600;font-size:13px;color:var(--ink);text-align:center;margin-bottom:16px;display:flex;flex-direction:column;align-items:center;gap:4px;}
+.cap b{background:var(--ink);color:var(--yellow);width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-family:'Plus Jakarta Sans';font-weight:700;margin-bottom:4px;}
+.cap span{font-weight:400;font-size:11.5px;color:var(--hint);}
+.unit{display:flex;flex-direction:column;align-items:center;}
+
+.phone{width:288px;height:600px;background:#0c0c0a;border-radius:44px;padding:10px;position:relative;
+  box-shadow:0 1px 0 2px #2a2a22 inset,0 26px 50px -22px rgba(0,0,0,.45),0 8px 20px -14px rgba(0,0,0,.5);}
+.phone::after{content:"";position:absolute;top:17px;left:50%;transform:translateX(-50%);width:88px;height:24px;background:#0c0c0a;border-radius:100px;z-index:30;}
+.screen{width:100%;height:100%;border-radius:35px;overflow:hidden;position:relative;display:flex;flex-direction:column;background:var(--bg);}
+.sb{height:42px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 20px 5px;font-size:11.5px;font-weight:700;flex-shrink:0;z-index:5;color:var(--ink);}
+.sb .ic{display:flex;gap:5px;align-items:center;font-size:12px;}
+.body{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;}
+.scr{flex:1;overflow:hidden;}
+
+.bnav{height:58px;background:var(--ink);display:flex;align-items:center;justify-content:space-around;padding-bottom:6px;flex-shrink:0;}
+.bnav a{display:flex;flex-direction:column;align-items:center;gap:3px;color:rgba(255,255,255,.5);font-size:9px;font-weight:600;text-decoration:none;}
+.bnav a i{font-size:19px;}
+.bnav a.on{color:var(--yellow);}
+
+.hd{padding:6px 18px 12px;display:flex;align-items:center;justify-content:space-between;}
+.hd .sub{font-size:12px;color:var(--soft-ink);} 
+.hd h2{font-family:'Sora';font-weight:700;font-size:19px;margin-top:2px;color:var(--ink);}
+.hd .bell{width:38px;height:38px;border-radius:12px;background:var(--ink);color:var(--yellow);display:flex;align-items:center;justify-content:center;font-size:18px;}
+
+/* ===== 1 PAINEL ===== */
+.metrics{padding:6px 18px 0;display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.metric{background:var(--ink);border-radius:15px;padding:11px 12px;color:var(--white);}
+.metric .i{width:28px;height:28px;border-radius:9px;background:var(--yellow);color:var(--ink);display:flex;align-items:center;justify-content:center;font-size:15px;margin-bottom:7px;}
+.metric .v{font-family:'Sora';font-weight:700;font-size:21px;letter-spacing:-.02em;color:var(--yellow);}
+.metric .v small{font-size:12px;color:rgba(255,255,255,.6);font-weight:600;}
+.metric .k{font-size:10.5px;color:rgba(255,255,255,.65);font-weight:500;margin-top:1px;}
+.metric .chip{font-size:9px;font-weight:700;padding:2px 7px;border-radius:100px;margin-top:6px;display:inline-block;background:var(--yellow);color:var(--ink);}
+.metric .chip.warn{background:#5a1e1e;color:#ffb4b4;}
+.sec-h{padding:14px 18px 8px;display:flex;align-items:center;justify-content:space-between;}
+.sec-h .tt{font-size:13px;font-weight:700;font-family:'Sora';color:var(--ink);}
+.sec-h a{font-size:11px;color:var(--ink);font-weight:700;text-decoration:none;border-bottom:1.5px solid var(--ink);}
+
+/* ===== ROUTE ROWS (painel + frota) ===== */
+.route{background:var(--ink);border-radius:16px;padding:13px 14px;margin:0 18px 10px;display:flex;align-items:center;gap:12px;color:var(--white);}
+.route .di{width:42px;height:42px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0;background:var(--card2);}
+.route .di.live{background:var(--yellow);color:var(--ink);} .route .di.warn{background:#5a1e1e;color:#ffb4b4;} .route .di.idle{background:var(--card2);color:rgba(255,255,255,.5);}
+.route .meta{flex:1;}
+.route .meta .nm{font-size:13.5px;font-weight:700;font-family:'Sora';color:var(--white);}
+.route .meta .dr{font-size:11px;color:rgba(255,255,255,.6);margin-top:2px;display:flex;align-items:center;gap:5px;}
+.route .right{text-align:right;}
+.route .right .st{font-size:9.5px;font-weight:700;padding:3px 8px;border-radius:100px;}
+.st.l{background:var(--yellow);color:var(--ink);} .st.w{background:#5a1e1e;color:#ffb4b4;} .st.i{background:var(--card2);color:rgba(255,255,255,.55);}
+.route .right .pr{font-size:11px;color:var(--yellow);margin-top:5px;font-weight:700;}
+
+/* ===== 2 FROTA AO VIVO ===== */
+.map{margin:8px 18px 0;height:170px;border-radius:18px;position:relative;overflow:hidden;background:var(--ink);border:1px solid var(--line);}
+.map .gr{position:absolute;inset:0;opacity:.6;background-image:linear-gradient(rgba(255,255,0,.10) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,0,.10) 1px,transparent 1px);background-size:26px 26px;}
+.map .road{position:absolute;background:rgba(255,255,255,.12);border-radius:6px;}
+.van{position:absolute;width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px;z-index:3;background:var(--yellow);color:var(--ink);box-shadow:0 4px 10px rgba(0,0,0,.4);}
+.van.warn{background:#e0564f;color:#fff;}
+.van::after{content:"";position:absolute;width:42px;height:42px;border-radius:50%;border:2px solid rgba(255,255,0,.5);animation:ring 2.2s infinite;}
+.van.warn::after{border-color:rgba(224,86,79,.5);}
+@keyframes ring{0%{transform:scale(.6);opacity:1;}100%{transform:scale(1.5);opacity:0;}}
+.legend{padding:12px 18px 0;display:flex;gap:14px;}
+.legend .lg{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--soft-ink);}
+.legend .dot{width:10px;height:10px;border-radius:50%;}
+
+/* ===== 3 DETALHE ROTA ===== */
+.detailcard{margin:8px 18px 0;background:var(--ink);border-radius:18px;padding:15px 16px;color:var(--white);}
+.detailcard .row{display:flex;justify-content:space-between;align-items:center;}
+.detailcard .lab{font-size:11px;color:rgba(255,255,255,.6);} .detailcard .val{font-family:'Sora';font-weight:600;font-size:14px;color:var(--yellow);margin-top:2px;}
+.detailcard .div{height:1px;background:var(--line-dark);margin:12px 0;}
+.tlist{padding:14px 18px 0;}
+.tlist h4{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--soft-ink);margin-bottom:11px;}
+.tstop{display:flex;gap:11px;position:relative;padding-bottom:13px;}
+.tstop:not(:last-child)::before{content:"";position:absolute;left:12px;top:26px;bottom:-2px;width:2px;background:var(--line);}
+.tstop .pin{width:25px;height:25px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:'Sora';z-index:2;}
+.pin.done{background:var(--ink);color:var(--yellow);} .pin.now{background:var(--ink);color:var(--yellow);box-shadow:0 0 0 4px rgba(12,12,10,.12);} .pin.next{background:transparent;border:2px solid var(--line);color:var(--hint);}
+.tstop .info .t{font-size:13px;font-weight:600;color:var(--ink);} .tstop .info .d{font-size:11px;color:var(--soft-ink);margin-top:1px;}
+
+/* ===== 4 FINANCEIRO ===== */
+.big-stat{margin:8px 18px 0;background:var(--ink);border-radius:20px;padding:18px;color:var(--white);}
+.big-stat .lab{font-size:12px;color:rgba(255,255,255,.65);} .big-stat .v{font-family:'Sora';font-weight:800;font-size:32px;color:var(--yellow);margin-top:4px;letter-spacing:-.02em;}
+.big-stat .sub{font-size:11.5px;color:rgba(255,255,255,.6);margin-top:4px;}
+.barwrap{margin-top:14px;height:8px;background:var(--card2);border-radius:100px;overflow:hidden;} .barwrap i{display:block;height:100%;background:var(--yellow);border-radius:100px;width:82%;}
+.barlab{display:flex;justify-content:space-between;margin-top:7px;font-size:10px;color:rgba(255,255,255,.6);font-weight:600;}
+.fsec{padding:14px 18px 0;} .fsec h4{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--soft-ink);margin-bottom:10px;}
+.frow{background:transparent;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:9px;display:flex;align-items:center;gap:11px;}
+.frow .i{width:38px;height:38px;border-radius:11px;background:var(--ink);color:var(--yellow);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.frow .m{flex:1;} .frow .m .t{font-size:13px;font-weight:700;color:var(--ink);} .frow .m .d{font-size:11px;color:var(--soft-ink);margin-top:1px;}
+.frow .amt{font-family:'Sora';font-weight:700;font-size:13px;text-align:right;color:var(--ink);} .frow .amt .bd{display:block;font-size:9px;font-weight:700;margin-top:3px;}
+.bd-paid{color:var(--pos);} .bd-open{color:#a35a00;}
+
+/* ===== 5 ALUNOS ===== */
+.search{margin:6px 18px 0;height:44px;background:var(--ink);border-radius:13px;display:flex;align-items:center;padding:0 14px;gap:9px;color:rgba(255,255,255,.55);font-size:13px;}
+.search i{font-size:17px;color:var(--yellow);}
+.slist{padding:12px 18px 0;}
+.srow{background:var(--ink);border-radius:14px;padding:11px 13px;margin-bottom:9px;display:flex;align-items:center;gap:11px;color:var(--white);}
+.srow .av{width:40px;height:40px;border-radius:12px;background:var(--yellow);color:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Sora';font-size:15px;flex-shrink:0;}
+.srow .m{flex:1;} .srow .m .nm{font-size:13px;font-weight:700;font-family:'Sora';} .srow .m .d{font-size:10.5px;color:rgba(255,255,255,.6);margin-top:1px;}
+.srow .flag{font-size:9px;font-weight:700;padding:3px 7px;border-radius:100px;background:#5a1e1e;color:#ffb4b4;}
+.srow .go{color:rgba(255,255,255,.4);font-size:17px;}
+
+/* ===== 6 CADASTRO ROTA ===== */
+.form{padding:8px 18px 0;}
+.field{margin-bottom:13px;}
+.field label{font-size:11px;font-weight:700;color:var(--soft-ink);display:block;margin-bottom:6px;letter-spacing:.03em;}
+.field .inp{height:46px;background:transparent;border:1.5px solid var(--line);border-radius:12px;display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--ink);font-weight:600;justify-content:space-between;}
+.field .inp.filled{background:var(--ink);color:var(--yellow);border-color:var(--ink);}
+.field .inp .ph{color:var(--hint);font-weight:400;}
+.field .inp i{font-size:17px;}
+.stopadd{border:1.5px dashed var(--line);border-radius:12px;height:46px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:700;color:var(--ink);margin-top:4px;}
+.savebar{padding:10px 18px;}
+.savebtn{height:50px;background:var(--ink);border-radius:15px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--yellow);font-weight:700;font-size:15px;}
+
+/* ===== 7 BACKUP ===== */
+.bkhero{padding:8px 18px 0;}
+.bkcard{background:var(--ink);border-radius:18px;padding:14px;color:var(--white);}
+.bkcard .top{display:flex;align-items:center;gap:11px;}
+.bkcard .av{width:44px;height:44px;border-radius:13px;background:var(--card2);color:var(--yellow);display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Sora';font-size:17px;}
+.bkcard .nm{font-family:'Sora';font-weight:700;font-size:15px;} .bkcard .rl{font-size:11px;color:var(--yellow);font-weight:600;margin-top:1px;}
+.bkcard .timer{margin-top:12px;background:var(--card2);border-radius:12px;padding:10px 12px;display:flex;align-items:center;gap:9px;}
+.bkcard .timer i{color:var(--yellow);font-size:17px;} .bkcard .timer .x{font-size:11.5px;color:rgba(255,255,255,.75);} .bkcard .timer b{color:var(--yellow);font-family:'Sora';}
+.permsec{padding:12px 18px 0;} .permsec h4{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--soft-ink);margin-bottom:6px;}
+.perm{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);}
+.perm .pi{width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.perm.allow .pi{background:var(--ink);color:var(--yellow);} .perm.deny .pi{background:var(--gray-soft);color:var(--hint);}
+.perm .pl{flex:1;font-size:12.5px;font-weight:600;color:var(--ink);} .perm.deny .pl{color:var(--hint);}
+.perm .pchk{font-size:18px;} .perm.allow .pchk{color:var(--ink);} .perm.deny .pchk{color:var(--hint);}
+.revoke{margin:8px 18px 0;height:46px;border:1.5px solid var(--ink);border-radius:13px;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--ink);font-weight:700;font-size:13.5px;}
+
+/* ===== 8 ALERTAS ===== */
+.asec{padding:8px 18px 0;}
+.acard{background:var(--ink);border-radius:14px;padding:13px;margin-bottom:9px;display:flex;gap:11px;color:var(--white);}
+.acard.crit{background:#3a1414;border:1px solid #7a2a2a;}
+.acard .ai{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;background:var(--card2);color:var(--yellow);}
+.acard.crit .ai{background:#e0564f;color:#fff;}
+.acard .c .t{font-size:12.5px;font-weight:700;color:var(--white);} .acard.crit .c .t{color:#ffd6d4;}
+.acard .c .d{font-size:11px;color:rgba(255,255,255,.7);margin-top:2px;line-height:1.4;} .acard.crit .c .d{color:#f0b8b6;}
+.acard .c .tm{font-size:9.5px;color:rgba(255,255,255,.45);margin-top:4px;font-weight:600;}
+
+.foot{max-width:1320px;margin:48px auto 0;text-align:center;color:var(--soft-ink);font-size:12.5px;font-family:'Sora';}
+.foot b{color:var(--ink);font-weight:700;}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <span class="kicker"><i class="ti ti-layout-dashboard" style="font-size:14px;"></i> VaiVem · app do gestor</span>
+  <h1>Protótipo completo — Gestor</h1>
+  <p>O painel do transportador: operação da frota em tempo real, financeiro, gestão de alunos e rotas, motorista backup e central de incidentes.</p>
+</div>
+
+<div class="grid">
+
+  <!-- 1 PAINEL -->
+  <div class="unit">
+    <div class="cap"><b>1</b>Painel <span>visão geral</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">Transportes Silva · qui, 05 jun</div><h2>Visão geral</h2></div><div class="bell"><i class="ti ti-bell"></i></div></div>
+        <div class="scr">
+          <div class="metrics">
+            <div class="metric"><div class="i"><i class="ti ti-bus"></i></div><div class="v">3 <small>ativas</small></div><div class="k">Rotas agora</div><span class="chip">no horário</span></div>
+            <div class="metric"><div class="i"><i class="ti ti-users"></i></div><div class="v">68</div><div class="k">Alunos a bordo</div><span class="chip">+4 hoje</span></div>
+            <div class="metric"><div class="i"><i class="ti ti-cash"></i></div><div class="v">R$ 14k</div><div class="k">Recebido no mês</div><span class="chip">82% pago</span></div>
+            <div class="metric"><div class="i"><i class="ti ti-alert-triangle"></i></div><div class="v">5</div><div class="k">Inadimplentes</div><span class="chip warn">cobrar</span></div>
+          </div>
+          <div class="sec-h"><span class="tt">Frota em operação</span><a>Ver tudo</a></div>
+          <div class="route"><div class="di live"><i class="ti ti-bus"></i></div><div class="meta"><div class="nm">Manhã · Dom Bosco</div><div class="dr"><i class="ti ti-user" style="font-size:12px;"></i> Antônio · 4/9 a bordo</div></div><div class="right"><span class="st l">ao vivo</span><div class="pr">ETA 7:41</div></div></div>
+          <div class="route"><div class="di warn"><i class="ti ti-alert-triangle"></i></div><div class="meta"><div class="nm">Manhã · Pio XII</div><div class="dr"><i class="ti ti-clock" style="font-size:12px;"></i> trânsito · atraso 6 min</div></div><div class="right"><span class="st w">atrasada</span><div class="pr" style="color:#ffb4b4;">ETA 7:52</div></div></div>
+        </div>
+      </div>
+      <div class="bnav"><a class="on"><i class="ti ti-layout-dashboard"></i>Painel</a><a><i class="ti ti-route"></i>Rotas</a><a><i class="ti ti-cash"></i>Financeiro</a><a><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+  <!-- 2 FROTA AO VIVO -->
+  <div class="unit">
+    <div class="cap"><b>2</b>Frota ao vivo <span>mapa da operação</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">3 veículos em rota</div><h2>Frota ao vivo</h2></div><div class="bell"><i class="ti ti-refresh"></i></div></div>
+        <div class="scr">
+          <div class="map">
+            <div class="gr"></div>
+            <div class="road" style="left:-5%;right:-5%;top:40%;height:10px;transform:rotate(-6deg);"></div>
+            <div class="road" style="top:-5%;bottom:-5%;left:60%;width:10px;transform:rotate(5deg);"></div>
+            <div class="road" style="left:-5%;right:40%;top:70%;height:10px;transform:rotate(8deg);"></div>
+            <div class="van" style="left:26%;top:34%;"><i class="ti ti-bus"></i></div>
+            <div class="van" style="left:62%;top:55%;"><i class="ti ti-bus"></i></div>
+            <div class="van warn" style="left:42%;top:72%;"><i class="ti ti-bus"></i></div>
+          </div>
+          <div class="legend"><div class="lg"><span class="dot" style="background:var(--ink);"></span>No horário (2)</div><div class="lg"><span class="dot" style="background:#e0564f;"></span>Atrasada (1)</div></div>
+          <div class="sec-h"><span class="tt">Veículos</span><a>Filtrar</a></div>
+          <div class="route"><div class="di live"><i class="ti ti-bus"></i></div><div class="meta"><div class="nm">Van 02 · Dom Bosco</div><div class="dr">Antônio · 4/9 · 38 km/h</div></div><div class="right"><span class="st l">ao vivo</span><div class="pr">ETA 7:41</div></div></div>
+          <div class="route"><div class="di live"><i class="ti ti-bus"></i></div><div class="meta"><div class="nm">Van 05 · Sta. Cecília</div><div class="dr">Marcos · 11/11 · 42 km/h</div></div><div class="right"><span class="st l">ao vivo</span><div class="pr">ETA 7:38</div></div></div>
+          <div class="route"><div class="di warn"><i class="ti ti-alert-triangle"></i></div><div class="meta"><div class="nm">Van 07 · Pio XII</div><div class="dr">Júlia · 8/8 · parada</div></div><div class="right"><span class="st w">atrasada</span><div class="pr" style="color:#ffb4b4;">ETA 7:52</div></div></div>
+        </div>
+      </div>
+      <div class="bnav"><a><i class="ti ti-layout-dashboard"></i>Painel</a><a class="on"><i class="ti ti-route"></i>Rotas</a><a><i class="ti ti-cash"></i>Financeiro</a><a><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+  <!-- 3 DETALHE ROTA -->
+  <div class="unit">
+    <div class="cap"><b>3</b>Detalhe da rota <span>monitorar paradas</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">Van 02 · Antônio</div><h2>Manhã · Dom Bosco</h2></div><div class="bell"><i class="ti ti-phone"></i></div></div>
+        <div class="scr">
+          <div class="detailcard">
+            <div class="row"><div><div class="lab">A bordo</div><div class="val">4 / 9</div></div><div style="text-align:right;"><div class="lab">Chegada prevista</div><div class="val">07:41</div></div></div>
+            <div class="div"></div>
+            <div class="row"><div><div class="lab">Velocidade</div><div class="val">38 km/h</div></div><div style="text-align:right;"><div class="lab">Status</div><div class="val">No horário</div></div></div>
+          </div>
+          <div class="tlist"><h4>PARADAS</h4>
+            <div class="tstop"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">R. das Acácias, 120</div><div class="d">Lucas M. · embarcado 07:12</div></div></div>
+            <div class="tstop"><div class="pin done"><i class="ti ti-check"></i></div><div class="info"><div class="t">Av. Brasil, 410</div><div class="d">Ana P., Theo P. · 07:19</div></div></div>
+            <div class="tstop"><div class="pin now"><i class="ti ti-map-pin"></i></div><div class="info"><div class="t">R. Tiradentes, 88</div><div class="d">Sofia R. · chegando (3 min)</div></div></div>
+            <div class="tstop"><div class="pin next">4</div><div class="info"><div class="t">R. das Flores, 23</div><div class="d">Miguel S. · ETA 8 min</div></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="bnav"><a><i class="ti ti-layout-dashboard"></i>Painel</a><a class="on"><i class="ti ti-route"></i>Rotas</a><a><i class="ti ti-cash"></i>Financeiro</a><a><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+  <!-- 4 FINANCEIRO -->
+  <div class="unit">
+    <div class="cap"><b>4</b>Financeiro <span>receita · inadimplência</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">Junho · 2026</div><h2>Financeiro</h2></div><div class="bell"><i class="ti ti-file-export"></i></div></div>
+        <div class="scr">
+          <div class="big-stat"><div class="lab">Recebido no mês</div><div class="v">R$ 14.080</div><div class="sub">de R$ 17.280 previstos</div><div class="barwrap"><i></i></div><div class="barlab"><span>82% recebido</span><span>R$ 3.200 em aberto</span></div></div>
+          <div class="fsec"><h4>INADIMPLENTES</h4>
+            <div class="frow"><div class="i"><i class="ti ti-user"></i></div><div class="m"><div class="t">Família Souza</div><div class="d">Vencido há 12 dias</div></div><div class="amt">R$ 320<span class="bd bd-open">EM ABERTO</span></div></div>
+            <div class="frow"><div class="i"><i class="ti ti-user"></i></div><div class="m"><div class="t">Família Lima</div><div class="d">Vencido há 5 dias</div></div><div class="amt">R$ 320<span class="bd bd-open">EM ABERTO</span></div></div>
+            <div class="frow"><div class="i"><i class="ti ti-user"></i></div><div class="m"><div class="t">Família Costa</div><div class="d">Pago hoje · PIX</div></div><div class="amt">R$ 320<span class="bd bd-paid">PAGO</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="bnav"><a><i class="ti ti-layout-dashboard"></i>Painel</a><a><i class="ti ti-route"></i>Rotas</a><a class="on"><i class="ti ti-cash"></i>Financeiro</a><a><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+  <!-- 5 ALUNOS -->
+  <div class="unit">
+    <div class="cap"><b>5</b>Gestão de alunos <span>cadastro · contratos</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">68 alunos ativos</div><h2>Alunos</h2></div><div class="bell"><i class="ti ti-plus"></i></div></div>
+        <div class="scr">
+          <div class="search"><i class="ti ti-search"></i> Buscar aluno ou família…</div>
+          <div class="slist">
+            <div class="srow"><div class="av">S</div><div class="m"><div class="nm">Sofia Rodrigues</div><div class="d">Dom Bosco · R. Tiradentes</div></div><span class="flag">alergia</span><i class="ti ti-chevron-right go"></i></div>
+            <div class="srow"><div class="av">L</div><div class="m"><div class="nm">Lucas Martins</div><div class="d">Dom Bosco · R. Acácias</div></div><i class="ti ti-chevron-right go"></i></div>
+            <div class="srow"><div class="av">A</div><div class="m"><div class="nm">Ana Pereira</div><div class="d">Dom Bosco · Av. Brasil</div></div><i class="ti ti-chevron-right go"></i></div>
+            <div class="srow"><div class="av">M</div><div class="m"><div class="nm">Miguel Santos</div><div class="d">Dom Bosco · R. Flores</div></div><i class="ti ti-chevron-right go"></i></div>
+            <div class="srow"><div class="av">T</div><div class="m"><div class="nm">Theo Pereira</div><div class="d">Dom Bosco · Av. Brasil</div></div><i class="ti ti-chevron-right go"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="bnav"><a><i class="ti ti-layout-dashboard"></i>Painel</a><a><i class="ti ti-route"></i>Rotas</a><a><i class="ti ti-cash"></i>Financeiro</a><a class="on"><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+  <!-- 6 CADASTRO ROTA -->
+  <div class="unit">
+    <div class="cap"><b>6</b>Cadastro de rota <span>montar trajeto</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">Nova rota</div><h2>Cadastrar rota</h2></div><div class="bell"><i class="ti ti-x"></i></div></div>
+        <div class="scr"><div class="form">
+          <div class="field"><label>NOME DA ROTA</label><div class="inp filled">Manhã · Dom Bosco <i class="ti ti-pencil"></i></div></div>
+          <div class="field"><label>VEÍCULO</label><div class="inp">Van 02 · ABC-1D23 <i class="ti ti-chevron-down"></i></div></div>
+          <div class="field"><label>MOTORISTA</label><div class="inp">Sr. Antônio <i class="ti ti-chevron-down"></i></div></div>
+          <div class="field"><label>PARADAS (3)</label>
+            <div class="inp" style="margin-bottom:7px;">1 · R. das Acácias, 120 <i class="ti ti-grip-vertical"></i></div>
+            <div class="inp" style="margin-bottom:7px;">2 · Av. Brasil, 410 <i class="ti ti-grip-vertical"></i></div>
+            <div class="inp">3 · R. Tiradentes, 88 <i class="ti ti-grip-vertical"></i></div>
+            <div class="stopadd"><i class="ti ti-plus"></i> Adicionar parada</div>
+          </div>
+        </div></div>
+        <div class="savebar"><div class="savebtn"><i class="ti ti-check"></i> Salvar rota</div></div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 7 BACKUP -->
+  <div class="unit">
+    <div class="cap"><b>7</b>Motorista backup <span>acesso temporário</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">Van 02 · hoje</div><h2>Motorista backup</h2></div><div class="bell"><i class="ti ti-user-plus"></i></div></div>
+        <div class="scr">
+          <div class="bkhero"><div class="bkcard">
+            <div class="top"><div class="av">C</div><div><div class="nm">Carlos Mendes</div><div class="rl">Backup · acesso ativo</div></div></div>
+            <div class="timer"><i class="ti ti-clock-hour-4"></i><span class="x">Acesso expira em <b>21h 30min</b></span></div>
+          </div></div>
+          <div class="permsec"><h4>PERMISSÕES TEMPORÁRIAS</h4>
+            <div class="perm allow"><div class="pi"><i class="ti ti-map-2"></i></div><div class="pl">Rota e navegação GPS</div><i class="ti ti-circle-check-filled pchk"></i></div>
+            <div class="perm allow"><div class="pi"><i class="ti ti-users"></i></div><div class="pl">Lista de alunos da rota</div><i class="ti ti-circle-check-filled pchk"></i></div>
+            <div class="perm allow"><div class="pi"><i class="ti ti-scan"></i></div><div class="pl">Check-in de embarque</div><i class="ti ti-circle-check-filled pchk"></i></div>
+            <div class="perm deny"><div class="pi"><i class="ti ti-cash"></i></div><div class="pl">Dados financeiros</div><i class="ti ti-circle-x pchk"></i></div>
+            <div class="perm deny"><div class="pi"><i class="ti ti-message"></i></div><div class="pl">Histórico de conversas</div><i class="ti ti-circle-x pchk"></i></div>
+          </div>
+          <div class="revoke"><i class="ti ti-ban"></i> Revogar acesso agora</div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- 8 ALERTAS -->
+  <div class="unit">
+    <div class="cap"><b>8</b>Incidentes <span>central de alertas</span></div>
+    <div class="phone"><div class="screen">
+      <div class="sb"><span>7:24</span><span class="ic"><i class="ti ti-signal-4g"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+      <div class="body">
+        <div class="hd"><div><div class="sub">2 críticos · 3 avisos</div><h2>Incidentes</h2></div><div class="bell"><i class="ti ti-filter"></i></div></div>
+        <div class="scr"><div class="asec">
+          <div class="acard crit"><div class="ai"><i class="ti ti-urgent"></i></div><div class="c"><div class="t">Veículo não confirmou varredura</div><div class="d">Van 07 · finalizou rota sem checar bancos</div><div class="tm">há 2 min</div></div></div>
+          <div class="acard crit"><div class="ai"><i class="ti ti-alert-triangle"></i></div><div class="c"><div class="t">Atraso acima de 15 min</div><div class="d">Van 07 · Pio XII · trânsito intenso</div><div class="tm">há 9 min</div></div></div>
+          <div class="acard"><div class="ai"><i class="ti ti-traffic-cone"></i></div><div class="c"><div class="t">Aviso de trânsito enviado</div><div class="d">Van 02 · 5 famílias notificadas</div><div class="tm">7:30</div></div></div>
+          <div class="acard"><div class="ai"><i class="ti ti-tool"></i></div><div class="c"><div class="t">Manutenção pendente</div><div class="d">Van 02 · troca de óleo em 180 km</div><div class="tm">hoje</div></div></div>
+          <div class="acard"><div class="ai"><i class="ti ti-cash"></i></div><div class="c"><div class="t">2 novos pagamentos recebidos</div><div class="d">Família Costa e Família Alves · PIX</div><div class="tm">hoje</div></div></div>
+        </div></div>
+      </div>
+      <div class="bnav"><a class="on"><i class="ti ti-layout-dashboard"></i>Painel</a><a><i class="ti ti-route"></i>Rotas</a><a><i class="ti ti-cash"></i>Financeiro</a><a><i class="ti ti-settings"></i>Config</a></div>
+    </div></div>
+  </div>
+
+</div>
+
+<div class="foot">VaiVem — protótipo do app do gestor · 8 telas · <b>operação em tempo real</b>, financeiro, alunos, rotas, backup temporário e incidentes</div>
+
+</body>
+</html>
