@@ -43,9 +43,16 @@ def _dt(segundos: int) -> datetime.datetime:
     return T0 + datetime.timedelta(seconds=segundos)
 
 
-def _criar_cenario(session, n_paradas: int = 4, receber_notificacoes: bool = True):
+def _criar_cenario(
+    session, n_paradas: int = 4, receber_notificacoes: bool = True,
+    estimativas_por_ordem: dict[int, int] | None = None,
+):
     """Tenant + 1 rota + N paradas/alunos/responsáveis + motorista/veículo,
-    viagem já iniciada (trip_students em 'aguardando', ordem 1..N)."""
+    viagem já iniciada (trip_students em 'aguardando', ordem 1..N).
+    `estimativas_por_ordem`: seta `Parada.duracao_estimada_segundos` por
+    ordem — usado para controlar a previsão de trajeto sem precisar de
+    amostras reais (não há `leg_durations` ainda numa viagem recém-criada)."""
+    estimativas_por_ordem = estimativas_por_ordem or {}
     tenant = Tenant(id=uuid.uuid4(), nome=f"Tenant B3 {uuid.uuid4()}", plano="pro", status_billing="ativo")
     session.add(tenant)
     session.flush()
@@ -73,6 +80,7 @@ def _criar_cenario(session, n_paradas: int = 4, receber_notificacoes: bool = Tru
         parada = Parada(
             id=uuid.uuid4(), tenant_id=tenant.id, rota_id=rota.id, nome=f"Parada {i}", ordem_base=i,
             geo=from_shape(Point(-46.6 + i * 0.001, -23.5 + i * 0.001), srid=4326),
+            duracao_estimada_segundos=estimativas_por_ordem.get(i),
         )
         session.add(parada)
         session.flush()
@@ -186,6 +194,34 @@ def test_responsavel_sem_permissao_nao_recebe_notificacao(db_session):
 # ---------------------------------------------------------------------------
 # Preparo — agendado (não imediato), CLAUDE.md "faltam ~X min"
 # ---------------------------------------------------------------------------
+
+
+def test_checkin_agenda_preparo_com_trecho_curto_nao_inverte_com_iminencia(db_session):
+    """Regressão explícita (CLAUDE.md §5): trecho curto até a PRÓXIMA parada
+    (N+1) — 2,5min — não pode fazer o preparo de N+2 (trecho normal de
+    10min depois) sair DEPOIS do ETA de N+1, quando "é a próxima" dispara.
+    """
+    cenario = _criar_cenario(db_session, n_paradas=3, estimativas_por_ordem={2: 150, 3: 600})
+    viagem, ts_list = cenario["viagem"], cenario["trip_students"]
+    set_tenant(db_session, cenario["tenant_id"])
+    ts1 = ts_list[0]
+
+    ts1.estado = TripStudentEstado.CHEGOU
+    ts1.chegou_em = _dt(100)
+    evento = tsm.registrar_checkin(viagem, ts1, now=_dt(150))
+    db_session.add(evento)
+    pos_evento.processar_checkin(db_session, viagem, ts_list, ts1, _dt(150))
+    db_session.commit()
+
+    ts2, ts3 = ts_list[1], ts_list[2]
+    eta_ts2 = _dt(150) + datetime.timedelta(seconds=150)  # ancora (150) + trecho até N+1 (150s)
+
+    pendentes = _preparo_pendente(db_session, ts3.id)
+    assert len(pendentes) == 1
+    # sem o teto, o candidato seria eta_ts3 (_dt(900)) - 300s = _dt(600) —
+    # bem DEPOIS do ETA de N+1 (_dt(300), quando "é a próxima" dispara).
+    assert pendentes[0].agendado_para <= eta_ts2
+    assert pendentes[0].agendado_para == eta_ts2  # teto ativo
 
 
 def test_checkin_agenda_preparo_para_n_mais_2(db_session):

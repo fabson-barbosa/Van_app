@@ -410,8 +410,54 @@ o campo já definido como diagnóstico — documentado no docstring de
   reprocessar não duplica envio; **corrida**: cancelamento concorrente
   durante o processamento — duas `Session`/conexões físicas separadas,
   `FOR UPDATE SKIP LOCKED` — nunca envia).
-- `pytest` (73 passed) e `pytest -m integration` (20 passed) limpos. Seed
+- `pytest` (79 passed) e `pytest -m integration` (21 passed) limpos. Seed
   roda idempotente sem quebrar com as colunas novas.
+
+### Correção pós-revisão — antecedência do preparo é POSICIONAL, não temporal
+
+Revisão apontou um bug real no piso fixo de 5min: se o trecho até a PRÓXIMA
+parada (N+1) é curto, "é a próxima" (iminência de N+2, disparada quando
+Cheguei(N+1) acontece) pode disparar DEPOIS do preparo de N+2 ser agendado
+com um "5min antes do ETA de N+2" ingênuo — a cascata inverte (preparo, que
+deveria ser o aviso mais cedo/suave, chegando depois do aviso mais tardio/
+urgente). A causa raiz: a antecedência do preparo precisa ser ancorada na
+POSIÇÃO (nunca depois de quando a parada anterior é alcançada), não só num
+número fixo de minutos antes do alvo.
+
+**Correção** (`app/services/pos_evento.py`):
+`agendado_para = min(max(agora, ETA(N+2) − 5min), ETA(N+1))` — o piso de
+5min continua a intenção por padrão, mas nunca pode passar do ETA da parada
+FISICAMENTE anterior ao alvo (`_eta_parada_anterior`, `_agendado_para_preparo`).
+Isso exigiu expor `projecao.etas_por_ordem` (ETA por ORDEM, não só por
+`trip_student` pendente — inclui paradas de alunos já terminais, porque o
+trecho físico ainda é percorrido) como a base de onde tirar o teto; `projetar_cauda`
+foi refatorado para usá-la por baixo (assinatura pública inalterada). O
+payload da notificação (`faixa_min_baixo/alto`) agora reflete a antecedência
+REAL (depois do clamp), não sempre os 5min nominais — o texto continua
+batendo com a realidade mesmo quando o teto encurtou o aviso.
+
+Registrado como parâmetro de produto em **CLAUDE.md §5** (piso de 5min +
+fórmula do teto), para o B4 não reinventar isso ao construir a UI do app
+Motorista/Responsável.
+
+6 testes novos travam a regressão: `test_pos_evento_helpers.py`
+(`_eta_parada_anterior`, `_agendado_para_preparo` — piso normal, trecho curto
+que força o teto, nunca no passado) e `test_projecao.py` (`etas_por_ordem`),
+mais um teste de integração (`test_checkin_agenda_preparo_com_trecho_curto_nao_inverte_com_iminencia`,
+Postgres real, trecho de 2,5min forçando o teto contra um trecho seguinte de
+10min).
+
+### `scripts/simular_viagem.py` — timeline legível para revisão manual
+
+Roda uma viagem completa contra os dados do seed e imprime a timeline de
+eventos + cada notificação que SERIA enviada (destinatário, instante,
+conteúdo), inclusive canceladas — sem precisar de push real (`StubFCMSender`).
+Cobre de propósito: uma casa pulada (mostra "nenhuma amostra de trajeto
+gravada"), um `desfazer_checkin` dentro da janela (mostra o cancelamento do
+`preparo` correspondente) e um trecho propositalmente curto (mostra o teto
+da correção acima em ação). Roda tudo dentro de uma transação com `rollback`
+no final — não deixa lixo na base de demo (confirmado: `viagens` do tenant
+demo continua em 0 depois de rodar).
 
 ### Pendências / TODOs explícitos
 

@@ -7,6 +7,7 @@ import uuid
 
 from app.services.projecao import (
     calcular_atraso_acumulado,
+    etas_por_ordem,
     previsao_acumulada_ate,
     projetar_cauda,
 )
@@ -108,6 +109,16 @@ def test_projetar_cauda_alunos_na_mesma_ordem_recebem_o_mesmo_eta():
         atraso_manual_segundos=0,
     )
     assert resultado[aluno_a] == resultado[aluno_b] == T0 + datetime.timedelta(seconds=100)
+
+
+def test_etas_por_ordem_inclui_ordens_terminais_para_o_teto_do_preparo():
+    # ordem 2 pode não ter ninguém pendente (ex.: ausente), mas o trecho
+    # físico ainda conta pra âncora do preparo em ordens seguintes.
+    resultado = etas_por_ordem(
+        anchor_timestamp=T0, ordem_anchor=0, ordens_a_percorrer=[1, 2, 3],
+        previsao_por_ordem={1: 60.0, 2: 60.0, 3: 60.0}, atraso_manual_segundos=0,
+    )
+    assert resultado == {1: _dt(60), 2: _dt(120), 3: _dt(180)}
 
 
 def test_projetar_cauda_nao_gera_entrada_para_quem_nao_esta_pendente():

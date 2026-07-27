@@ -112,6 +112,22 @@ dwell(N)         = Checkin(N)   − Cheguei(N)
 Avisos usam **faixa** de minutos, nunca minuto exato. Sem GPS, precisão falsa
 destrói a confiança do responsável.
 
+**Antecedência do aviso de preparo** (parâmetro de produto, definido no B3 —
+qualquer app cliente que precise saber "daqui a quanto tempo dispara" usa
+isto, não reinventa):
+
+- Piso desejado: **5 minutos** antes do ETA da parada-alvo (N+2).
+- Teto inviolável: **nunca depois do ETA da parada fisicamente anterior**
+  (N+1) — é quando "É a próxima!" dispara. A antecedência do preparo é
+  **posicional** (~2 paradas antes), não um número fixo de minutos; em
+  trechos curtos o piso de 5min cede para não inverter a cascata (preparo
+  chegando depois de "É a próxima").
+- Fórmula: `agendado_para = min(max(agora, ETA(N+2) − 5min), ETA(N+1))`.
+
+Sempre que a estimativa da cauda mudar, o texto e o horário do preparo já
+pendente são recalculados (nunca criam uma segunda notificação — reagendam a
+mesma).
+
 ## 6. Diálogo de confirmação do "Cheguei"
 
 Único diálogo bloqueante do app. Conteúdo:

@@ -40,11 +40,14 @@ from app.services import projecao as proj
 
 _ESTADOS_TERMINAIS = (TripStudentEstado.ENTREGUE, TripStudentEstado.AUSENTE)
 
-# Antecedência do aviso de preparo (CLAUDE.md §5 não define um valor — decisão
-# de implementação): agenda para disparar ~5min antes do ETA projetado de
-# N+2, e a faixa exibida ("faltam ~X min") reflete essa MESMA antecedência,
-# para o texto continuar batendo com a realidade no momento em que dispara
-# (não no momento em que foi agendado).
+# Antecedência do aviso de preparo — parâmetro de produto, registrado em
+# CLAUDE.md §5 (senão o B4 reinventa): PISO de 5min antes do ETA da
+# parada-alvo, mas a âncora real é POSICIONAL (~2 paradas antes), não
+# temporal — o preparo nunca pode ser agendado para depois do ETA da parada
+# FISICAMENTE anterior ao alvo (`_eta_parada_anterior`/`_agendado_para_preparo`
+# abaixo). Em trechos curtos isso encurta a antecedência efetiva para menos
+# de 5min — nunca inverte com "é a próxima" (iminência), que dispara quando
+# o van chega nessa parada anterior.
 PREPARO_ANTECEDENCIA_SEGUNDOS = 5 * 60
 
 
@@ -108,6 +111,38 @@ def _anchor_atual(
     if not timestamps:
         return iniciada_em, -1
     return max(timestamps), max(ordens_tocadas)
+
+
+def _eta_parada_anterior(
+    ordens_a_percorrer: Sequence[int], etas_ordem: dict[int, datetime.datetime],
+    anchor_timestamp: datetime.datetime, ordem_alvo: int,
+) -> datetime.datetime:
+    """Teto de agendamento do `preparo` (CLAUDE.md §5): ETA da parada
+    FISICAMENTE anterior a `ordem_alvo` — nunca depois disso, senão o
+    preparo chegaria depois de "é a próxima" (que dispara quando o van
+    chega nessa parada anterior). Sem parada intermediária entre a âncora e
+    o alvo (alvo é literalmente a próxima), o teto é a própria âncora."""
+    anteriores = [o for o in ordens_a_percorrer if o < ordem_alvo]
+    if not anteriores:
+        return anchor_timestamp
+    return etas_ordem[max(anteriores)]
+
+
+def _agendado_para_preparo(
+    *, agora: datetime.datetime, eta_alvo: datetime.datetime, eta_parada_anterior: datetime.datetime,
+    antecedencia_segundos: int = PREPARO_ANTECEDENCIA_SEGUNDOS,
+) -> datetime.datetime:
+    """Quando o `preparo` deve disparar — CLAUDE.md §5.
+
+    Piso: nunca no passado (`agora`). Teto: nunca depois do ETA da parada
+    fisicamente anterior ao alvo (`eta_parada_anterior` < `eta_alvo` sempre,
+    por construção de `etas_por_ordem`) — é isso que garante a ordem da
+    cascata em trechos curtos, onde os 5min de antecedência desejados não
+    cabem. O piso nunca ultrapassa o teto porque `eta_parada_anterior >= agora`
+    sempre (é uma ETA futura a partir da mesma âncora).
+    """
+    candidato = eta_alvo - datetime.timedelta(seconds=antecedencia_segundos)
+    return min(max(agora, candidato), eta_parada_anterior)
 
 
 # ---------------------------------------------------------------------------
@@ -275,18 +310,12 @@ def _recalcular_e_reagendar(
     "recálculo que invalide o horário"."""
     anchor_timestamp, ordem_anchor = _anchor_atual(trip_students_ordenados, viagem.iniciada_em)
     previsao_por_ordem = _previsao_todos_os_trechos(db, viagem, trip_students_ordenados, agora)
-
     ordens_a_percorrer = sorted({ts.ordem for ts in trip_students_ordenados if ts.ordem > ordem_anchor})
-    pendentes_por_ordem: dict[int, list[uuid.UUID]] = {}
-    for ts in trip_students_ordenados:
-        if ts.ordem > ordem_anchor and ts.estado not in _ESTADOS_TERMINAIS:
-            pendentes_por_ordem.setdefault(ts.ordem, []).append(ts.id)
-
-    etas = proj.projetar_cauda(
+    etas_ordem = proj.etas_por_ordem(
         anchor_timestamp=anchor_timestamp, ordem_anchor=ordem_anchor, ordens_a_percorrer=ordens_a_percorrer,
-        previsao_por_ordem=previsao_por_ordem, trip_students_pendentes_por_ordem=pendentes_por_ordem,
-        atraso_manual_segundos=viagem.atraso_manual_segundos,
+        previsao_por_ordem=previsao_por_ordem, atraso_manual_segundos=viagem.atraso_manual_segundos,
     )
+    por_id = {ts.id: ts for ts in trip_students_ordenados}
 
     pendentes_preparo = db.scalars(
         select(NotificacaoAgendada).where(
@@ -296,11 +325,18 @@ def _recalcular_e_reagendar(
         )
     ).all()
     for pendente in pendentes_preparo:
-        eta = etas.get(pendente.trip_student_id)
-        if eta is None:
-            continue  # virou terminal ou não está mais na cauda — cancelamento específico cuida disso
-        pendente.agendado_para = max(agora, eta - datetime.timedelta(seconds=PREPARO_ANTECEDENCIA_SEGUNDOS))
-        pendente.payload = notif.montar_payload_preparo(PREPARO_ANTECEDENCIA_SEGUNDOS)
+        alvo = por_id.get(pendente.trip_student_id)
+        if alvo is None or alvo.estado in _ESTADOS_TERMINAIS:
+            continue  # virou terminal — cancelamento específico cuida disso
+        eta_alvo = etas_ordem.get(alvo.ordem)
+        if eta_alvo is None:
+            continue  # fora da cauda calculada (ex.: ordem <= âncora)
+        eta_parada_anterior = _eta_parada_anterior(ordens_a_percorrer, etas_ordem, anchor_timestamp, alvo.ordem)
+        pendente.agendado_para = _agendado_para_preparo(
+            agora=agora, eta_alvo=eta_alvo, eta_parada_anterior=eta_parada_anterior
+        )
+        antecedencia_real = (eta_alvo - pendente.agendado_para).total_seconds()
+        pendente.payload = notif.montar_payload_preparo(antecedencia_real)
 
 
 # ---------------------------------------------------------------------------
@@ -340,17 +376,16 @@ def processar_checkin(
     if alvo is not None:
         previsao_por_ordem = _previsao_todos_os_trechos(db, viagem, trip_students_ordenados, agora)
         ordens_a_percorrer = sorted({ts.ordem for ts in trip_students_ordenados if ts.ordem > atual.ordem})
-        etas = proj.projetar_cauda(
+        etas_ordem = proj.etas_por_ordem(
             anchor_timestamp=agora, ordem_anchor=atual.ordem, ordens_a_percorrer=ordens_a_percorrer,
-            previsao_por_ordem=previsao_por_ordem, trip_students_pendentes_por_ordem={alvo.ordem: [alvo.id]},
-            atraso_manual_segundos=viagem.atraso_manual_segundos,
+            previsao_por_ordem=previsao_por_ordem, atraso_manual_segundos=viagem.atraso_manual_segundos,
         )
-        eta = etas.get(alvo.id)
-        if eta is not None:
-            agendado_para = max(agora, eta - datetime.timedelta(seconds=PREPARO_ANTECEDENCIA_SEGUNDOS))
-            _agendar_ou_atualizar_preparo(
-                db, viagem, alvo, agendado_para, notif.montar_payload_preparo(PREPARO_ANTECEDENCIA_SEGUNDOS)
-            )
+        eta_alvo = etas_ordem.get(alvo.ordem)
+        if eta_alvo is not None:
+            eta_parada_anterior = _eta_parada_anterior(ordens_a_percorrer, etas_ordem, agora, alvo.ordem)
+            agendado_para = _agendado_para_preparo(agora=agora, eta_alvo=eta_alvo, eta_parada_anterior=eta_parada_anterior)
+            antecedencia_real = (eta_alvo - agendado_para).total_seconds()
+            _agendar_ou_atualizar_preparo(db, viagem, alvo, agendado_para, notif.montar_payload_preparo(antecedencia_real))
 
     _recalcular_e_reagendar(db, viagem, trip_students_ordenados, agora)
 

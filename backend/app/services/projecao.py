@@ -60,6 +60,31 @@ def calcular_atraso_acumulado(
     return round(real_decorrido_segundos - previsto_acumulado_segundos)
 
 
+def etas_por_ordem(
+    *,
+    anchor_timestamp: datetime.datetime,
+    ordem_anchor: int,
+    ordens_a_percorrer: Sequence[int],
+    previsao_por_ordem: Mapping[int, float],
+    atraso_manual_segundos: int,
+) -> dict[int, datetime.datetime]:
+    """ETA por ORDEM (não por trip_student) — inclui ordens de alunos já
+    terminais (o trecho físico ainda é percorrido mesmo que ninguém desça
+    ali). Base de `projetar_cauda` e do teto de agendamento de `preparo`
+    (`pos_evento._eta_parada_anterior` — CLAUDE.md §5, "antecedência é
+    posicional, não temporal": o preparo nunca pode passar do ETA da parada
+    fisicamente anterior ao alvo, senão a cascata inverte com "é a próxima").
+    """
+    resultado: dict[int, datetime.datetime] = {}
+    acumulado_segundos = 0.0
+    for ordem in ordens_a_percorrer:
+        if ordem <= ordem_anchor:
+            continue
+        acumulado_segundos += previsao_por_ordem.get(ordem, 0.0)
+        resultado[ordem] = anchor_timestamp + datetime.timedelta(seconds=acumulado_segundos + atraso_manual_segundos)
+    return resultado
+
+
 def projetar_cauda(
     *,
     anchor_timestamp: datetime.datetime,
@@ -78,13 +103,12 @@ def projetar_cauda(
     `trip_students_pendentes_por_ordem`: só os NÃO terminais, é o que decide
     para quem o resultado tem entrada.
     """
+    etas_ordem = etas_por_ordem(
+        anchor_timestamp=anchor_timestamp, ordem_anchor=ordem_anchor, ordens_a_percorrer=ordens_a_percorrer,
+        previsao_por_ordem=previsao_por_ordem, atraso_manual_segundos=atraso_manual_segundos,
+    )
     resultado: dict[uuid.UUID, datetime.datetime] = {}
-    acumulado_segundos = 0.0
-    for ordem in ordens_a_percorrer:
-        if ordem <= ordem_anchor:
-            continue
-        acumulado_segundos += previsao_por_ordem.get(ordem, 0.0)
-        eta = anchor_timestamp + datetime.timedelta(seconds=acumulado_segundos + atraso_manual_segundos)
+    for ordem, eta in etas_ordem.items():
         for trip_student_id in trip_students_pendentes_por_ordem.get(ordem, ()):
             resultado[trip_student_id] = eta
     return resultado

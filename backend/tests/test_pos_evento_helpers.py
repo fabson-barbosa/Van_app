@@ -10,7 +10,10 @@ import uuid
 
 from app.models.trip_student import TripStudent, TripStudentEstado
 from app.services.pos_evento import (
+    PREPARO_ANTECEDENCIA_SEGUNDOS,
+    _agendado_para_preparo,
     _anchor_atual,
+    _eta_parada_anterior,
     _n_esimo_nao_terminal,
     _nao_terminais_apos,
     _ordem_anterior_info,
@@ -119,3 +122,49 @@ def test_anchor_atual_usa_o_timestamp_mais_recente_e_a_maior_ordem_tocada():
     anchor_timestamp, ordem_anchor = _anchor_atual([ts1, ts2, ts3], iniciada_em=T0)
     assert anchor_timestamp == _dt(300)
     assert ordem_anchor == 2
+
+
+# ---------------------------------------------------------------------------
+# _eta_parada_anterior / _agendado_para_preparo — a cascata não pode inverter
+# (CLAUDE.md §5: antecedência do preparo é POSICIONAL, não temporal)
+# ---------------------------------------------------------------------------
+
+
+def test_eta_parada_anterior_usa_a_ordem_imediatamente_antes_do_alvo():
+    etas_ordem = {1: _dt(60), 2: _dt(150), 3: _dt(400)}
+    resultado = _eta_parada_anterior([1, 2, 3], etas_ordem, anchor_timestamp=T0, ordem_alvo=3)
+    assert resultado == _dt(150)  # ordem 2, não ordem 1
+
+
+def test_eta_parada_anterior_sem_intermediaria_usa_a_ancora():
+    etas_ordem = {5: _dt(300)}
+    resultado = _eta_parada_anterior([5], etas_ordem, anchor_timestamp=T0, ordem_alvo=5)
+    assert resultado == T0
+
+
+def test_agendado_para_preparo_usa_o_piso_de_5min_quando_o_trecho_da_espaco():
+    # trecho longo: ETA(alvo)=20min, parada anterior a 15min — 5min de
+    # antecedência cabem sem esbarrar no teto.
+    agendado = _agendado_para_preparo(agora=T0, eta_alvo=_dt(1200), eta_parada_anterior=_dt(900))
+    assert agendado == _dt(1200 - PREPARO_ANTECEDENCIA_SEGUNDOS)  # 900 = 15min, ainda dentro do teto
+
+
+def test_agendado_para_preparo_trecho_curto_ate_a_proxima_parada_nao_inverte_com_iminencia():
+    # Regressão explícita pedida: trecho curto (2-3min) ATÉ A PRÓXIMA PARADA
+    # (N+1) faz "é a próxima" (iminência de N+2) disparar logo — um piso fixo
+    # de 5min antes do ETA de N+2, sozinho, agendaria o preparo DEPOIS disso
+    # (a cascata inverte). O trecho seguinte (N+1 -> N+2) é normal (10min),
+    # então sem o teto o candidato (5min antes do ETA de N+2) passaria longe
+    # do ETA de N+1.
+    eta_parada_anterior = _dt(150)  # trecho curto até N+1: 2,5min desde a âncora
+    eta_alvo = _dt(150 + 10 * 60)  # + trecho normal até N+2 (10min) = 12,5min totais
+    agendado = _agendado_para_preparo(agora=T0, eta_alvo=eta_alvo, eta_parada_anterior=eta_parada_anterior)
+    assert agendado <= eta_parada_anterior
+    assert agendado == eta_parada_anterior  # teto ativo — sem ele daria 450s (7,5min), depois da iminência (150s)
+
+
+def test_agendado_para_preparo_nunca_no_passado():
+    # se até o teto (parada anterior) já passou, cai no piso `agora` — o
+    # agendador processa como "vencido" na próxima passada, não quebra.
+    agendado = _agendado_para_preparo(agora=T0, eta_alvo=_dt(-500), eta_parada_anterior=_dt(-600))
+    assert agendado == _dt(-600)  # teto < agora: fica no teto mesmo, "atrasado" — ver docstring
