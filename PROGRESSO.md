@@ -472,3 +472,215 @@ demo continua em 0 depois de rodar).
   não foi adicionado.
 - **App Motorista/Responsável (B4/B5)**: nada implementado, conforme pedido
   — a projeção/cascata só existe no backend.
+
+---
+
+## Bloco B4 — App Motorista (Expo/Android) — **concluído (código); validação de banco e emulador PENDENTE**
+
+### Duas lacunas bloqueantes encontradas antes de codar — resolvidas com o usuário
+
+1. **O motorista não tinha como montar nenhuma tela.** `TripStudentOut` só
+   trazia `aluno_id`/`parada_id` (UUIDs), e `/api/alunos`, `/api/rotas`,
+   `/api/rotas/{id}/paradas` são `require_role("admin")` — sem exceção para
+   `motorista`/`motorista_backup`. O diálogo do Cheguei (§6) exige nome do
+   aluno e endereço.
+2. **Reconciliação de relógio não existia** (lacuna registrada em
+   `ARQUITETURA.md` §8, atribuída ao B4 desde o B3). `eventos_aluno.timestamp`
+   era o relógio do servidor no momento do processamento HTTP, e alimentava
+   direto `chegou_em`/`checkin_em` — um lote offline sincronizado de uma vez
+   colapsaria os trajetos reais para perto de zero, corrompendo o EWMA do B3.
+
+Decisões tomadas com o usuário (nenhum `require_role("admin")` existente foi
+afrouxado — minimização de dados, LGPD):
+
+1. `TripStudentOut` ganhou `aluno_nome`/`parada_endereco` (join direto, sem
+   parser de logradouro/número — heurística erraria em endereços atípicos,
+   e o diálogo do Cheguei é exatamente onde errar pesa mais). `ViagemOut`
+   ganhou `rota_nome`/`rota_turno`/`rota_escola`/`total_alunos`. Nenhum dos
+   dois expõe `dados_medicos` nem o cadastro inteiro do tenant.
+2. Reconciliação: `ocorrido_em = device_timestamp + (agora_servidor −
+   device_enviado_em)`, com clamp de offset em ±24h (estourou → cai pro
+   relógio do servidor, `confiavel=False`, `leg_duration` não grava amostra
+   a partir desse evento). A janela de 60s do desfazer-checkin mede **dois
+   relógios de servidor** — nunca o aparelho — para não abrir undo infinito
+   com relógio manipulado (ver achado extra abaixo).
+3. Idempotência via `event_id`: gerado no aparelho no toque, reenviado sem
+   trocar; reenvio nunca duplica evento nem devolve 409 espúrio.
+4. Viagens `planejada` do dia nascem no `seed_demo.py` (não existe endpoint
+   de criação de viagem pro motorista — isso é do Gestor, fora desta rodada).
+
+### Achado durante a implementação — a janela do desfazer-checkin precisava de uma âncora nova
+
+Medir a janela de 60s como "agora do servidor − `checkin_em`" não bastava:
+`checkin_em` virou o instante **reconciliado** (`ocorrido_em`), que o
+cliente influencia via `device_timestamp`/`device_enviado_em`. Um cliente
+adversarial poderia declarar esses dois campos livremente e manter
+`checkin_em` artificialmente "recente" pra sempre, driblando os 60s.
+Corrigido com uma coluna nova, `trip_students.checkin_registrado_em`
+(relógio do servidor no momento em que o Checkin foi recebido — nunca
+reconciliado), e a janela agora compara **dois valores de servidor**: `agora
+− checkin_registrado_em`. `checkin_em` continua alimentando o motor de
+tempos normalmente.
+
+### O que foi feito — Backend
+
+- **Migration `0008_reconciliacao_temporal`**: `eventos_aluno.timestamp` →
+  `ocorrido_em` (rename); colunas novas `registrado_em` (NOT NULL, backfill
+  = `ocorrido_em`) e `event_id` (UUID único, backfill = `gen_random_uuid()`);
+  `trip_students.checkin_registrado_em` (nullable, sem backfill — não há
+  fonte de dado pra viagens já em andamento no momento da migração, então
+  fica `NULL` e o `desfazer_checkin` trata isso como janela expirada,
+  fail-safe). **Achado**: o backfill é um `UPDATE`, e o trigger de
+  imutabilidade de `0004` bloqueia `UPDATE` mesmo pro owner — a migration
+  desliga o trigger (`DROP TRIGGER`) antes do backfill e religa
+  (`CREATE TRIGGER`, mesma definição) depois, dentro da mesma transação.
+- **`app/services/reconciliacao.py`** (puro): `reconciliar()` — offset,
+  clamp de ±24h, clamps de sanidade (nunca no futuro, nunca antes de
+  `viagem.iniciada_em`), retorna `confiavel: bool`.
+- **`app/services/trip_state_machine.py`**: todas as transições trocam
+  `now=` por `ocorrido_em=`/`registrado_em=` (+ `event_id=` opcional,
+  repassado ao `EventoAluno`). `registrar_checkin` grava
+  `checkin_registrado_em`; `desfazer_checkin` mede a janela contra ele (não
+  contra `checkin_em`) e trata `checkin_registrado_em is None` como janela
+  expirada.
+- **`app/services/pos_evento.py`**: `processar_cheguei` ganhou
+  `registrar_amostra: bool = True` — quando a reconciliação não é confiável,
+  a cascata de notificações roda normalmente, mas nenhuma amostra vai pro
+  `leg_duration`.
+- **`app/api/viagens.py`**: os 6 endpoints de evento passam a reconciliar
+  antes de chamar `trip_state_machine`, checam `event_id` já processado
+  antes de reprocessar (`_evento_ja_processado`), e capturam `IntegrityError`
+  do índice único (`_registrar_evento`) para devolver o estado do vencedor
+  em vez de 500 numa corrida. `ViagemOut`/`TripStudentOut` são montados via
+  `_viagem_out`/`_trip_student_out` (join em lote, sem N+1).
+- **`app/schemas/viagens.py`**: `EventoAlunoRequest` ganhou `event_id`
+  (obrigatório) e `device_enviado_em`; `TripStudentOut`/`ViagemOut`
+  enriquecidos (ver decisão 1).
+- **`scripts/seed_demo.py`**: reestruturado para não abortar mais quando o
+  tenant já existe — em vez disso garante (idempotente, chave
+  `rota_id + data`) uma viagem `planejada` de **hoje** por rota, tanto no
+  primeiro run quanto em runs seguintes em dias diferentes.
+- **`scripts/simular_viagem.py`**: assinaturas atualizadas para
+  `ocorrido_em=`/`registrado_em=`.
+
+### O que foi feito — App Motorista (`mobile/`)
+
+Expo SDK 51, TypeScript estrito, Android only (`minSdkVersion 26` via
+`expo-build-properties`). Sem bottom nav — stack única (Login → RotaDoDia →
+Viagem → FinalizarViagem); Alunos/Frota/Perfil/Emergência/Broadcast do
+protótipo antigo (`docs/prototipos/01-app-motorista.html`) são do plano
+superado (CLAUDE.md §10/§11), fora do B4.
+
+- **`shared/api/`**: `client.ts` (fetch + timeout 15s + `ApiError`/
+  `NetworkError` tipados), `endpoints.ts`, `types.ts` (espelho manual dos
+  schemas Pydantic — sem gerador de cliente nesta rodada).
+- **`shared/auth/AuthContext.tsx`**: token em `expo-secure-store`. Resolução
+  aprovada para "token expira (60min, sem refresh no backend) no meio de uma
+  viagem offline": a fila já pausa sozinha em qualquer 401
+  (`pausadoPorAuth`, sem descartar itens); o contexto só expõe
+  `sessaoExpirada`, e o `RootNavigator` renderiza um prompt de reautenticação
+  **por cima** da tela atual (não navega pra longe, não perde o estado da
+  viagem). Depois do login, `retomarAposRelogin()` destrava a fila.
+- **`shared/offline/queue.ts`**: fila persistente (`AsyncStorage`, um blob
+  JSON), FIFO por `seq`, toda leitura-modificação-escrita serializada por
+  encadeamento de promises (`serializado()`) — sem isso, dois toques rápidos
+  perderiam um item. Cobre só os 6 eventos por aluno.
+- **`shared/offline/sync.ts`**: drenagem estritamente sequencial (a máquina
+  de estados do servidor valida ordem — §7.2, janela do undo). Tratamento
+  por tipo de falha: 2xx remove + aplica o `TripStudentOut` do servidor
+  sobre o estado local; 401 pausa tudo sem descartar; 4xx/409 remove +
+  manda pra bandeja de conflitos (a tela ressincroniza via GET); rede/5xx
+  **para a drenagem inteira** (não pula, não remove) e agenda nova tentativa
+  com backoff exponencial (2s→60s). Gatilhos automáticos: reconexão
+  (`NetInfo`), app voltando ao primeiro plano (`AppState`), e o backoff.
+- **Decisão de escopo não pedida explicitamente, mas necessária**: iniciar
+  viagem, finalizar viagem, reordenar e "estou atrasado" são **online-only**
+  (chamada direta, erro claro + tentar de novo) — não entram na fila
+  offline. São ações de fronteira (início/fim do turno, raras), o CLAUDE.md
+  usa "van sem sinal" no contexto do fluxo contínuo de embarque, e finalizar
+  em particular precisa da resposta do servidor pra varredura bloqueante
+  fazer sentido. Documentado no topo de `queue.ts`.
+- **`motorista/state/ViagemStore.tsx`**: estado otimista — aplica a
+  transição local na hora do toque, enfileira, e substitui pelo
+  `TripStudentOut` do servidor quando `sincronizado` chega. Em `conflito`,
+  ressincroniza a tela inteira via GET (mais simples e mais seguro que
+  tentar aplicar um patch depois de uma rejeição de domínio). §7.2 é checado
+  no cliente antes de abrir o diálogo do Cheguei (guard de UX — a
+  autoridade continua sendo o 409 do servidor).
+- **UI (CLAUDE.md §6/§8)**: `Botao56`/`TOQUE_MIN=56` em toda ação;
+  `EstadoBadge` sempre visível; **interpretação de "uma ação por linha"**
+  (ambiguidade sinalizada antes de codar): o botão primário é único e muda
+  com o estado (Cheguei→Checkin→Checkout), "Ausente" é uma affordance
+  secundária deliberadamente menor, sem competir visualmente; `DialogoCheguei`
+  é o único diálogo bloqueante (nome em destaque, endereço 13sp peso leve,
+  Confirmar/Cancelar, nada mais); `BarraUndo` (30s na UI — a janela do
+  servidor é 60s) cancela localmente se o Checkin ainda está na fila, ou
+  enfileira `desfazer_checkin` de verdade se já foi enviado; reordenar via
+  `ModoReordenar` + setas por linha, só alunos `aguardando`; `PillSync`
+  mostra conectividade + pendentes sempre que há algo não sincronizado
+  (requisito explícito do offline-first).
+- **Telas**: `LoginScreen` (reaproveitada, modo `embutido`, no prompt de
+  reautenticação), `RotaDoDiaScreen`, `ViagemScreen`, `FinalizarViagemScreen`
+  (varredura bloqueante — botão travado com qualquer não-terminal ou item
+  ainda na fila; cabeçalho de alerta duro se alguém está `a_bordo`).
+
+### Testes
+
+- **Backend, unitários (93 no total, sem banco)**: `test_reconciliacao.py`
+  (11 casos — offset, clamp ±24h, sanidade), `test_trip_state_machine.py`
+  (30 casos, +7 sobre o B2: `event_id` repassado, janela do desfazer-checkin
+  medida contra `registrado_em` e não `checkin_em`, fail-safe sem
+  `checkin_registrado_em`).
+- **Backend, integração (Postgres real — não executados neste ambiente, sem
+  Docker disponível; ver "Pendências" abaixo)**:
+  - `test_lote_offline.py` — **teste obrigatório pedido pelo usuário**: um
+    lote de 6 eventos (3 pares Cheguei/Checkin) com deriva de relógio real
+    (+3min) e sincronizado de uma vez, 45min depois, produz os MESMOS
+    `leg_durations` (média e nº de amostras, bucket a bucket) que os mesmos
+    6 eventos enviados ao vivo, relógio certo. + caso de offset além do
+    clamp não gravando amostra.
+  - `test_migration_0008_com_dados.py` — **obrigatório**: monta o grafo de
+    suporte via ORM, faz `alembic downgrade` pra antes da 0008, insere um
+    `EventoAluno` via SQL cru no formato pré-migration, `upgrade head` de
+    novo, confere backfill (`ocorrido_em`/`registrado_em`/`event_id`) e que
+    o trigger de imutabilidade continua bloqueando UPDATE/DELETE depois de
+    ter sido religado pela própria migration.
+  - `test_idempotencia_evento.py` — **obrigatório**: mesmo `event_id`
+    enviado 2x grava um único `EventoAluno` e devolve 200 (não 409); dois
+    `event_id` diferentes para a mesma ação continuam gerando 409 de
+    verdade (idempotência não mascara erro de domínio); corrida simulada
+    (dois INSERTs com o mesmo `event_id` chegando quase juntos) resolvida
+    pelo índice único, sem 500.
+  - Os testes de integração pré-existentes (`test_leg_duration_integracao.py`,
+    `test_notificacoes_agendamento.py`, `test_rls_and_triggers.py`) tiveram
+    as assinaturas atualizadas para `ocorrido_em=`/`registrado_em=`.
+- **App Motorista (Jest + jest-expo, 19 casos, `npm test` dentro de
+  `mobile/`)**: `queue.test.ts` (FIFO, persistência real via
+  `@react-native-async-storage/async-storage/jest/async-storage-mock`,
+  escritas concorrentes não se perdem, fila corrompida não trava),
+  `sync.test.ts` (2xx/401/409/rede-5xx tratados como no CLAUDE.md, ordem
+  estritamente sequencial, drenagem concorrente é no-op), `relogio.test.ts`.
+  **`npx tsc --noEmit` limpo** (zero erros) — validado neste ambiente
+  (`npm install` + testes + typecheck rodaram; emulador Android não estava
+  disponível, ver "Pendências").
+
+### Pendências / TODOs explícitos
+
+- **Validação contra Postgres real**: `pytest -m integration` não rodou
+  neste ambiente (sem Docker/Postgres disponível). Rodar antes de dar o
+  bloco por fechado de verdade:
+  ```bash
+  docker compose up -d
+  cd backend && alembic upgrade head && pytest -m integration
+  ```
+- **Emulador/dispositivo Android**: o app não foi executado de verdade (sem
+  SDK Android neste ambiente). `npx expo start --android` a partir de
+  `mobile/`, contra o backend rodando, login
+  `motorista.centro@demo.vaivem.com.br` / `demo12345` (seed cria a viagem de
+  hoje automaticamente).
+- **"Estou atrasado"**: endpoint já existe (B3) mas não ganhou botão na UI
+  do B4 — não estava nas 4 telas pedidas explicitamente; fica como TODO.
+- **App Responsável (B5)**: nada implementado, conforme pedido.
+- Parser de logradouro/número de `Parada.endereco`: descartado de propósito
+  (decisão do usuário) — vira colunas reais quando o cadastro do Gestor
+  existir.

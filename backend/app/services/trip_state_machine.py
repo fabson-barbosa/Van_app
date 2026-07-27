@@ -1,9 +1,9 @@
 """Máquina de estados do aluno na viagem — lógica pura (CLAUDE.md §4, Bloco B2).
 
 Sem HTTP, sem sessão de banco: cada função recebe os objetos ORM já
-carregados (não persistidos aqui) e o relógio (`now`) como parâmetro, para
-que os testes unitários rodem sem banco e de forma determinística. Quem
-persiste (`db.add`/`db.commit`) é a camada fina em `api/viagens.py`.
+carregados (não persistidos aqui) e os relógios como parâmetro, para que os
+testes unitários rodem sem banco e de forma determinística. Quem persiste
+(`db.add`/`db.commit`) é a camada fina em `api/viagens.py`.
 
 Regras cobertas (CLAUDE.md §4, §7.1, §7.2, §8):
 - Transições válidas da máquina de estados, incluindo `ausente` direto de
@@ -13,6 +13,14 @@ Regras cobertas (CLAUDE.md §4, §7.1, §7.2, §8):
 - §7.1: varredura final bloqueante — não finalizar com aluno em estado não
   terminal.
 - §8: reordenar só é permitido com o aluno ainda em `aguardando`.
+
+Dois relógios (Bloco B4, ver `app/services/reconciliacao.py` e docstring de
+`app/models/evento_aluno.py`): `ocorrido_em` é o instante reconciliado do
+evento (o que alimenta `chegou_em`/`checkin_em`/etc e, por consequência, o
+motor de tempos do B3); `registrado_em` é o relógio do servidor no momento
+do processamento HTTP — é contra ELE, sempre, que a janela de 60s do
+desfazer-checkin é medida, nunca contra o aparelho (undo infinito com
+relógio manipulado seria possível do contrário).
 """
 from __future__ import annotations
 
@@ -47,20 +55,26 @@ def _novo_evento(
     alvo: TripStudent,
     tipo: EventoAlunoTipo,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None,
+    event_id: uuid.UUID | None,
     registrado_por: uuid.UUID | None,
     estado_anterior: TripStudentEstado,
 ) -> EventoAluno:
-    return EventoAluno(
+    kwargs = dict(
         tenant_id=alvo.tenant_id,
         trip_student_id=alvo.id,
         tipo=tipo,
         estado_anterior=estado_anterior,
-        timestamp=now,
+        ocorrido_em=ocorrido_em,
+        registrado_em=registrado_em,
         device_timestamp=device_timestamp,
         registrado_por_user_id=registrado_por,
     )
+    if event_id is not None:
+        kwargs["event_id"] = event_id
+    return EventoAluno(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +87,10 @@ def registrar_cheguei(
     alvo: TripStudent,
     trip_students_viagem: Sequence[TripStudent],
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
 ) -> EventoAluno:
     _garantir_status_viagem(viagem, ViagemStatus.EM_ANDAMENTO, "cheguei")
@@ -91,9 +107,10 @@ def registrar_cheguei(
 
     estado_anterior = alvo.estado
     alvo.estado = TripStudentEstado.CHEGOU
-    alvo.chegou_em = now
+    alvo.chegou_em = ocorrido_em
     return _novo_evento(
-        alvo, EventoAlunoTipo.CHEGUEI, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.CHEGUEI, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -102,8 +119,10 @@ def registrar_checkin(
     viagem: Viagem,
     alvo: TripStudent,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
 ) -> EventoAluno:
     _garantir_status_viagem(viagem, ViagemStatus.EM_ANDAMENTO, "checkin")
@@ -112,9 +131,11 @@ def registrar_checkin(
 
     estado_anterior = alvo.estado
     alvo.estado = TripStudentEstado.A_BORDO
-    alvo.checkin_em = now
+    alvo.checkin_em = ocorrido_em
+    alvo.checkin_registrado_em = registrado_em
     return _novo_evento(
-        alvo, EventoAlunoTipo.CHECKIN, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.CHECKIN, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -123,8 +144,10 @@ def registrar_checkout(
     viagem: Viagem,
     alvo: TripStudent,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
 ) -> EventoAluno:
     _garantir_status_viagem(viagem, ViagemStatus.EM_ANDAMENTO, "checkout")
@@ -133,9 +156,10 @@ def registrar_checkout(
 
     estado_anterior = alvo.estado
     alvo.estado = TripStudentEstado.ENTREGUE
-    alvo.checkout_em = now
+    alvo.checkout_em = ocorrido_em
     return _novo_evento(
-        alvo, EventoAlunoTipo.CHECKOUT, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.CHECKOUT, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -144,8 +168,10 @@ def registrar_ausente(
     viagem: Viagem,
     alvo: TripStudent,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
 ) -> EventoAluno:
     """`aguardando` ou `chegou` -> `ausente` (CLAUDE.md §4).
@@ -160,9 +186,10 @@ def registrar_ausente(
 
     estado_anterior = alvo.estado
     alvo.estado = TripStudentEstado.AUSENTE
-    alvo.ausente_em = now
+    alvo.ausente_em = ocorrido_em
     return _novo_evento(
-        alvo, EventoAlunoTipo.AUSENTE, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.AUSENTE, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -171,8 +198,10 @@ def desfazer_chegada(
     viagem: Viagem,
     alvo: TripStudent,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
 ) -> EventoAluno:
     """`chegou` -> `aguardando`, permitido enquanto não houver Checkin.
@@ -189,7 +218,8 @@ def desfazer_chegada(
     alvo.estado = TripStudentEstado.AGUARDANDO
     alvo.chegou_em = None
     return _novo_evento(
-        alvo, EventoAlunoTipo.DESFAZER_CHEGADA, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.DESFAZER_CHEGADA, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -198,12 +228,28 @@ def desfazer_checkin(
     viagem: Viagem,
     alvo: TripStudent,
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
+    registrado_em: datetime.datetime,
     device_timestamp: datetime.datetime | None = None,
+    event_id: uuid.UUID | None = None,
     registrado_por: uuid.UUID | None = None,
     janela_segundos: int = JANELA_DESFAZER_CHECKIN_SEGUNDOS,
 ) -> EventoAluno:
     """`a_bordo` -> `chegou`, dentro da janela de tolerância do servidor.
+
+    A janela de 60s compara DOIS relógios de servidor — `registrado_em`
+    (agora) contra `alvo.checkin_registrado_em` (quando o servidor recebeu
+    aquele Checkin) — nunca `checkin_em` (que é o instante RECONCILIADO,
+    logo influenciável pelo `device_timestamp`/`device_enviado_em` que o
+    próprio cliente envia). Decisão de produto (CLAUDE.md §4, Bloco B4):
+    medir contra qualquer valor de origem no aparelho abriria undo infinito
+    com relógio manipulado. Um Checkin que ficou na fila offline por mais de
+    60s antes de sincronizar (ou cujo desfazer só sincronizou depois desse
+    prazo) é legitimamente rejeitado aqui — a bandeja de conflitos do app
+    trata esse 409. `checkin_registrado_em` ausente (nunca deveria acontecer
+    para um `trip_student` em `a_bordo`, mas cobre o backfill de viagens já
+    em andamento no momento da migration) trata como janela expirada —
+    fail-safe, nunca fail-open.
 
     Reabre o dwell e cancela o cronômetro do trajeto (na prática: limpa
     `checkin_em`, para que qualquer leitura de dwell/trajeto volte a não
@@ -213,15 +259,20 @@ def desfazer_checkin(
     if alvo.estado != TripStudentEstado.A_BORDO or alvo.checkin_em is None:
         raise TransicaoInvalidaError(alvo.estado, "desfazer_checkin")
 
-    decorrido = (now - alvo.checkin_em).total_seconds()
+    if alvo.checkin_registrado_em is None:
+        raise JanelaDesfazerExpiradaError(janela_segundos, float("inf"))
+
+    decorrido = (registrado_em - alvo.checkin_registrado_em).total_seconds()
     if decorrido > janela_segundos:
         raise JanelaDesfazerExpiradaError(janela_segundos, decorrido)
 
     estado_anterior = alvo.estado
     alvo.estado = TripStudentEstado.CHEGOU
     alvo.checkin_em = None
+    alvo.checkin_registrado_em = None
     return _novo_evento(
-        alvo, EventoAlunoTipo.DESFAZER_CHECKIN, now=now, device_timestamp=device_timestamp,
+        alvo, EventoAlunoTipo.DESFAZER_CHECKIN, ocorrido_em=ocorrido_em, registrado_em=registrado_em,
+        device_timestamp=device_timestamp, event_id=event_id,
         registrado_por=registrado_por, estado_anterior=estado_anterior,
     )
 
@@ -235,19 +286,21 @@ def iniciar_viagem(
     viagem: Viagem,
     alunos_paradas: Sequence[tuple[uuid.UUID, uuid.UUID | None, int]],
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
 ) -> list[TripStudent]:
     """`planejada` -> `em_andamento`; monta os `trip_students` a partir do
     gabarito da rota, congelando `ordem`/`parada_id` (snapshot — CLAUDE.md §8).
 
     `alunos_paradas`: tuplas `(aluno_id, parada_id, ordem)` já resolvidas pelo
     chamador (join Aluno/Parada por rota_id) — a query em si é responsabilidade
-    da camada de API, não deste núcleo.
+    da camada de API, não deste núcleo. `ocorrido_em` é o instante reconciliado
+    do toque em "iniciar rota" (Bloco B4) — é a âncora que `pos_evento.py` usa
+    quando não há parada anterior, então também passa pela reconciliação.
     """
     _garantir_status_viagem(viagem, ViagemStatus.PLANEJADA, "iniciar")
 
     viagem.status = ViagemStatus.EM_ANDAMENTO
-    viagem.iniciada_em = now
+    viagem.iniciada_em = ocorrido_em
 
     return [
         TripStudent(
@@ -266,7 +319,7 @@ def finalizar_viagem(
     viagem: Viagem,
     trip_students: Sequence[TripStudent],
     *,
-    now: datetime.datetime,
+    ocorrido_em: datetime.datetime,
 ) -> None:
     """Varredura final bloqueante (CLAUDE.md §7.1 — regra inviolável).
 
@@ -284,7 +337,7 @@ def finalizar_viagem(
         raise VarreduraFinalPendenteError(pendentes, algum_a_bordo)
 
     viagem.status = ViagemStatus.FINALIZADA
-    viagem.finalizada_em = now
+    viagem.finalizada_em = ocorrido_em
     viagem.varredura_confirmada = True
 
 

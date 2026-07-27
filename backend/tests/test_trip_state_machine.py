@@ -1,8 +1,11 @@
 """Testes unitários da máquina de estados (Bloco B2, CLAUDE.md §4/§7/§8).
 
 Rodam sem banco: `TripStudent`/`Viagem`/`EventoAluno` são instanciados como
-objetos Python puros (nenhuma sessão SQLAlchemy é aberta), e o relógio é
-injetado via `now=`.
+objetos Python puros (nenhuma sessão SQLAlchemy é aberta).
+
+Bloco B4: os relógios são injetados via `ocorrido_em=`/`registrado_em=` (em
+vez do antigo `now=` único) — nos testes que não têm motivo para divergir os
+dois, `_evt(seg)` devolve o mesmo instante para ambos.
 """
 import datetime
 import uuid
@@ -61,6 +64,13 @@ def _dt(segundos: int) -> datetime.datetime:
     return T0 + datetime.timedelta(seconds=segundos)
 
 
+def _clocks(segundos: int) -> dict:
+    """Ocorrido_em == registrado_em — caso comum (evento online, sem deriva
+    de relógio nem fila offline) usado pela maioria dos testes, que não é
+    sobre reconciliação em si."""
+    return {"ocorrido_em": _dt(segundos), "registrado_em": _dt(segundos)}
+
+
 # ---------------------------------------------------------------------------
 # Caminho feliz completo
 # ---------------------------------------------------------------------------
@@ -70,21 +80,32 @@ def test_caminho_feliz_ate_entregue():
     viagem = _viagem()
     aluno = _trip_student(viagem, ordem=1)
 
-    evento = tsm.registrar_cheguei(viagem, aluno, [aluno], now=_dt(0))
+    evento = tsm.registrar_cheguei(viagem, aluno, [aluno], **_clocks(0))
     assert aluno.estado == TripStudentEstado.CHEGOU
     assert aluno.chegou_em == _dt(0)
     assert evento.tipo == EventoAlunoTipo.CHEGUEI
     assert evento.estado_anterior == TripStudentEstado.AGUARDANDO
 
-    evento = tsm.registrar_checkin(viagem, aluno, now=_dt(30))
+    evento = tsm.registrar_checkin(viagem, aluno, **_clocks(30))
     assert aluno.estado == TripStudentEstado.A_BORDO
     assert aluno.checkin_em == _dt(30)
+    assert aluno.checkin_registrado_em == _dt(30)
     assert evento.estado_anterior == TripStudentEstado.CHEGOU
 
-    evento = tsm.registrar_checkout(viagem, aluno, now=_dt(600))
+    evento = tsm.registrar_checkout(viagem, aluno, **_clocks(600))
     assert aluno.estado == TripStudentEstado.ENTREGUE
     assert aluno.checkout_em == _dt(600)
     assert evento.tipo == EventoAlunoTipo.CHECKOUT
+
+
+def test_event_id_e_repassado_ao_evento_quando_informado():
+    viagem = _viagem()
+    aluno = _trip_student(viagem, ordem=1)
+    event_id = uuid.uuid4()
+
+    evento = tsm.registrar_cheguei(viagem, aluno, [aluno], **_clocks(0), event_id=event_id)
+
+    assert evento.event_id == event_id
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +117,7 @@ def test_ausente_direto_de_aguardando_nao_seta_chegou_em():
     viagem = _viagem()
     aluno = _trip_student(viagem, ordem=1)
 
-    evento = tsm.registrar_ausente(viagem, aluno, now=_dt(0))
+    evento = tsm.registrar_ausente(viagem, aluno, **_clocks(0))
 
     assert aluno.estado == TripStudentEstado.AUSENTE
     assert aluno.chegou_em is None
@@ -107,9 +128,9 @@ def test_ausente_direto_de_aguardando_nao_seta_chegou_em():
 def test_ausente_apos_chegou_preserva_chegou_em():
     viagem = _viagem()
     aluno = _trip_student(viagem, ordem=1)
-    tsm.registrar_cheguei(viagem, aluno, [aluno], now=_dt(0))
+    tsm.registrar_cheguei(viagem, aluno, [aluno], **_clocks(0))
 
-    evento = tsm.registrar_ausente(viagem, aluno, now=_dt(120))
+    evento = tsm.registrar_ausente(viagem, aluno, **_clocks(120))
 
     assert aluno.estado == TripStudentEstado.AUSENTE
     assert aluno.chegou_em == _dt(0)
@@ -121,7 +142,7 @@ def test_ausente_invalido_a_partir_de_entregue():
     aluno = _trip_student(viagem, ordem=1, estado=TripStudentEstado.ENTREGUE)
 
     with pytest.raises(TransicaoInvalidaError):
-        tsm.registrar_ausente(viagem, aluno, now=_dt(0))
+        tsm.registrar_ausente(viagem, aluno, **_clocks(0))
 
 
 # ---------------------------------------------------------------------------
@@ -149,9 +170,9 @@ def test_transicoes_invalidas_levantam_erro_explicito(acao, estado_inicial):
     fn = getattr(tsm, acao)
     with pytest.raises(TransicaoInvalidaError):
         if acao == "registrar_cheguei":
-            fn(viagem, aluno, [aluno], now=_dt(0))
+            fn(viagem, aluno, [aluno], **_clocks(0))
         else:
-            fn(viagem, aluno, now=_dt(0))
+            fn(viagem, aluno, **_clocks(0))
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +186,7 @@ def test_cheguei_bloqueado_por_parada_anterior_pendente():
     alvo = _trip_student(viagem, ordem=2)
 
     with pytest.raises(ParadaAnteriorPendenteError) as exc_info:
-        tsm.registrar_cheguei(viagem, alvo, [anterior, alvo], now=_dt(60))
+        tsm.registrar_cheguei(viagem, alvo, [anterior, alvo], **_clocks(60))
 
     assert anterior in exc_info.value.pendentes
     assert alvo.estado == TripStudentEstado.AGUARDANDO  # não mutou
@@ -177,7 +198,7 @@ def test_cheguei_nao_bloqueado_por_mesma_ordem_ou_ordem_maior():
     posterior_pendente = _trip_student(viagem, ordem=3, estado=TripStudentEstado.CHEGOU, chegou_em=_dt(0))
     alvo = _trip_student(viagem, ordem=2)
 
-    tsm.registrar_cheguei(viagem, alvo, [mesma_parada, posterior_pendente, alvo], now=_dt(60))
+    tsm.registrar_cheguei(viagem, alvo, [mesma_parada, posterior_pendente, alvo], **_clocks(60))
 
     assert alvo.estado == TripStudentEstado.CHEGOU
 
@@ -191,7 +212,7 @@ def test_desfazer_chegada_reabre_aguardando_sem_notificacao_flag():
     viagem = _viagem()
     aluno = _trip_student(viagem, ordem=1, estado=TripStudentEstado.CHEGOU, chegou_em=_dt(0))
 
-    evento = tsm.desfazer_chegada(viagem, aluno, now=_dt(10))
+    evento = tsm.desfazer_chegada(viagem, aluno, **_clocks(10))
 
     assert aluno.estado == TripStudentEstado.AGUARDANDO
     assert aluno.chegou_em is None
@@ -201,26 +222,64 @@ def test_desfazer_chegada_reabre_aguardando_sem_notificacao_flag():
 def test_desfazer_checkin_dentro_da_janela():
     viagem = _viagem()
     aluno = _trip_student(
-        viagem, ordem=1, estado=TripStudentEstado.A_BORDO, chegou_em=_dt(0), checkin_em=_dt(30)
+        viagem, ordem=1, estado=TripStudentEstado.A_BORDO,
+        chegou_em=_dt(0), checkin_em=_dt(30), checkin_registrado_em=_dt(30),
     )
 
-    evento = tsm.desfazer_checkin(viagem, aluno, now=_dt(30 + 59))
+    evento = tsm.desfazer_checkin(viagem, aluno, **_clocks(30 + 59))
 
     assert aluno.estado == TripStudentEstado.CHEGOU
     assert aluno.checkin_em is None
+    assert aluno.checkin_registrado_em is None
     assert evento.tipo == EventoAlunoTipo.DESFAZER_CHECKIN
 
 
 def test_desfazer_checkin_fora_da_janela_rejeita():
     viagem = _viagem()
     aluno = _trip_student(
-        viagem, ordem=1, estado=TripStudentEstado.A_BORDO, chegou_em=_dt(0), checkin_em=_dt(30)
+        viagem, ordem=1, estado=TripStudentEstado.A_BORDO,
+        chegou_em=_dt(0), checkin_em=_dt(30), checkin_registrado_em=_dt(30),
     )
 
     with pytest.raises(JanelaDesfazerExpiradaError):
-        tsm.desfazer_checkin(viagem, aluno, now=_dt(30 + 61))
+        tsm.desfazer_checkin(viagem, aluno, **_clocks(30 + 61))
 
     assert aluno.estado == TripStudentEstado.A_BORDO  # não mutou
+
+
+def test_desfazer_checkin_janela_medida_contra_registrado_em_nao_contra_checkin_em():
+    """Bloco B4 — a janela de 60s é servidor-servidor. `checkin_em` (RECONCILIADO,
+    influenciável pelo aparelho) pode divergir bastante de `checkin_registrado_em`
+    (quando o servidor de fato recebeu aquele Checkin) sem afetar o resultado:
+    o que importa é só a distância entre os dois `registrado_em`."""
+    viagem = _viagem()
+    # checkin_em "reconciliado" aponta para 10 minutos atrás (ex.: evento
+    # sincronizado da fila offline, ocorrido_em bem anterior ao recebimento),
+    # mas o servidor só recebeu esse Checkin há 10 segundos.
+    aluno = _trip_student(
+        viagem, ordem=1, estado=TripStudentEstado.A_BORDO,
+        chegou_em=_dt(-700), checkin_em=_dt(-600), checkin_registrado_em=_dt(0),
+    )
+
+    # Undo pedido 10s depois do RECEBIMENTO (não do checkin_em reconciliado) —
+    # dentro da janela.
+    evento = tsm.desfazer_checkin(viagem, aluno, ocorrido_em=_dt(10), registrado_em=_dt(10))
+    assert evento.tipo == EventoAlunoTipo.DESFAZER_CHECKIN
+    assert aluno.estado == TripStudentEstado.CHEGOU
+
+
+def test_desfazer_checkin_sem_checkin_registrado_em_e_fail_safe():
+    """Backfill de viagens já em andamento no momento da migration 0008: sem
+    `checkin_registrado_em`, o undo é tratado como janela expirada — nunca
+    fail-open."""
+    viagem = _viagem()
+    aluno = _trip_student(
+        viagem, ordem=1, estado=TripStudentEstado.A_BORDO,
+        chegou_em=_dt(0), checkin_em=_dt(30), checkin_registrado_em=None,
+    )
+
+    with pytest.raises(JanelaDesfazerExpiradaError):
+        tsm.desfazer_checkin(viagem, aluno, **_clocks(31))
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +293,7 @@ def test_evento_rejeitado_fora_de_em_andamento(status):
     aluno = _trip_student(viagem, ordem=1)
 
     with pytest.raises(ViagemStatusInvalidoError):
-        tsm.registrar_cheguei(viagem, aluno, [aluno], now=_dt(0))
+        tsm.registrar_cheguei(viagem, aluno, [aluno], **_clocks(0))
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +305,7 @@ def test_iniciar_viagem_cria_trip_students_em_aguardando():
     viagem = _viagem(status=ViagemStatus.PLANEJADA)
     aluno_id, parada_id = uuid.uuid4(), uuid.uuid4()
 
-    novos = tsm.iniciar_viagem(viagem, [(aluno_id, parada_id, 1)], now=_dt(0))
+    novos = tsm.iniciar_viagem(viagem, [(aluno_id, parada_id, 1)], ocorrido_em=_dt(0))
 
     assert viagem.status == ViagemStatus.EM_ANDAMENTO
     assert viagem.iniciada_em == _dt(0)
@@ -261,7 +320,7 @@ def test_iniciar_viagem_ja_iniciada_falha():
     viagem = _viagem(status=ViagemStatus.EM_ANDAMENTO)
 
     with pytest.raises(ViagemStatusInvalidoError):
-        tsm.iniciar_viagem(viagem, [], now=_dt(0))
+        tsm.iniciar_viagem(viagem, [], ocorrido_em=_dt(0))
 
 
 def test_finalizar_viagem_bloqueia_com_aluno_nao_terminal():
@@ -269,7 +328,7 @@ def test_finalizar_viagem_bloqueia_com_aluno_nao_terminal():
     aluno = _trip_student(viagem, ordem=1, estado=TripStudentEstado.A_BORDO)
 
     with pytest.raises(VarreduraFinalPendenteError) as exc_info:
-        tsm.finalizar_viagem(viagem, [aluno], now=_dt(0))
+        tsm.finalizar_viagem(viagem, [aluno], ocorrido_em=_dt(0))
 
     assert exc_info.value.algum_a_bordo is True
     assert viagem.status == ViagemStatus.EM_ANDAMENTO  # não mutou
@@ -280,7 +339,7 @@ def test_finalizar_viagem_com_pendente_aguardando_nao_sinaliza_a_bordo():
     aluno = _trip_student(viagem, ordem=1, estado=TripStudentEstado.AGUARDANDO)
 
     with pytest.raises(VarreduraFinalPendenteError) as exc_info:
-        tsm.finalizar_viagem(viagem, [aluno], now=_dt(0))
+        tsm.finalizar_viagem(viagem, [aluno], ocorrido_em=_dt(0))
 
     assert exc_info.value.algum_a_bordo is False
 
@@ -290,7 +349,7 @@ def test_finalizar_viagem_com_todos_terminais_sucede():
     entregue = _trip_student(viagem, ordem=1, estado=TripStudentEstado.ENTREGUE)
     ausente = _trip_student(viagem, ordem=2, estado=TripStudentEstado.AUSENTE)
 
-    tsm.finalizar_viagem(viagem, [entregue, ausente], now=_dt(500))
+    tsm.finalizar_viagem(viagem, [entregue, ausente], ocorrido_em=_dt(500))
 
     assert viagem.status == ViagemStatus.FINALIZADA
     assert viagem.finalizada_em == _dt(500)

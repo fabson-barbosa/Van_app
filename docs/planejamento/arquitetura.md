@@ -85,10 +85,14 @@ Estas moldam código futuro. Não reinventar no B2–B5.
 
 ## 6. Migrations
 
-Alembic, numeradas sequencialmente. Estado atual: `0001`–`0004`.
+Alembic, numeradas sequencialmente. Estado atual: `0001`–`0008`.
 
 - `0003_rls_paradas_responsaveis` — fecha a lacuna de RLS
 - `0004_trip_domain` — domínio de viagem + trigger de imutabilidade
+- `0008_reconciliacao_temporal` — reconciliação de relógio + idempotência de
+  evento (Bloco B4, ver §8). Precisou desligar/religar o trigger de `0004`
+  em volta do próprio backfill — ele bloqueia UPDATE mesmo pro owner da
+  migration.
 
 **Toda migration que cria tabela com dados de cliente deve criar a policy de RLS
 na mesma migration.** Tabela sem policy é tabela pública.
@@ -112,7 +116,17 @@ vazamento entre operadores.
 
 - Tomada de posse por `motorista_backup` — não implementada
 - Retenção/expurgo LGPD — B6, fora desta rodada
-- Reconciliação de eventos offline: `device_timestamp` é gravado, mas a regra de
-  resolução de conflito ainda não existe (definir no B4)
+- ~~Reconciliação de eventos offline~~ — **fechada no B4.**
+  `eventos_aluno` tem três relógios: `ocorrido_em` (instante reconciliado —
+  `device_timestamp` + offset contra o servidor, `app/services/reconciliacao.py`;
+  alimenta `chegou_em`/`checkin_em` e o motor de tempos), `registrado_em`
+  (quando o servidor recebeu — auditoria, e é contra ELE, nunca contra o
+  aparelho, que a janela de 60s do desfazer-checkin é medida —
+  `trip_students.checkin_registrado_em` guarda o lado do Checkin dessa
+  comparação), `device_timestamp` (valor cru, forense). Offset com clamp de
+  ±24h; fora disso ou faltando dado do aparelho, cai no relógio do servidor
+  com `confiavel=False` (não vira amostra de `leg_duration`). Migration
+  `0008_reconciliacao_temporal`. Idempotência de reenvio via `event_id`
+  (gerado no aparelho, único no banco) resolvida junto, no mesmo bloco.
 - ⚠️ verificar: estratégia de índices em `eventos_aluno`, que é a tabela que mais
   cresce

@@ -62,6 +62,13 @@ class TripStudent(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     checkin_em: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checkout_em: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ausente_em: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Espelha `checkin_em`, mas em relógio de SERVIDOR (quando o Checkin foi
+    # recebido, não o instante reconciliado). Bloco B4 — é contra esta coluna,
+    # nunca contra `checkin_em`, que a janela de 60s do desfazer-checkin é
+    # medida: ambos os lados da comparação precisam ser imunes ao
+    # `device_timestamp`/`device_enviado_em` que o cliente controla (ver
+    # `app/services/trip_state_machine.py::desfazer_checkin`).
+    checkin_registrado_em: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<TripStudent viagem={self.viagem_id} aluno={self.aluno_id} ({self.estado})>"

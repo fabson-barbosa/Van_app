@@ -346,11 +346,18 @@ def _recalcular_e_reagendar(
 
 def processar_cheguei(
     db: Session, viagem: Viagem, trip_students_ordenados: Sequence[TripStudent], atual: TripStudent,
-    agora: datetime.datetime, sender: notif.FCMSender | None = None,
+    agora: datetime.datetime, sender: notif.FCMSender | None = None, *, registrar_amostra: bool = True,
 ) -> None:
+    """`registrar_amostra=False` (Bloco B4): quando a reconciliação de relógio
+    do evento não é confiável (`app/services/reconciliacao.py`), o instante
+    recebido não é uma medida real do trajeto — gravar mesmo assim
+    contaminaria o EWMA de `leg_duration` com lixo. A cascata de notificações
+    e o `atraso_acumulado_segundos` seguem normalmente (são só exibição/
+    diagnóstico, toleram um instante aproximado)."""
     sender = sender or notif.StubFCMSender()
 
-    _registrar_amostra_trajeto(db, viagem, trip_students_ordenados, atual)
+    if registrar_amostra:
+        _registrar_amostra_trajeto(db, viagem, trip_students_ordenados, atual)
 
     previsao_por_ordem = _previsao_todos_os_trechos(db, viagem, trip_students_ordenados, agora)
     previsto_acumulado = proj.previsao_acumulada_ate(sorted({ts.ordem for ts in trip_students_ordenados}), previsao_por_ordem)

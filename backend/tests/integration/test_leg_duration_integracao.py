@@ -75,7 +75,7 @@ def _criar_cenario(session, n_paradas: int = 3):
     )
     session.add(viagem)
     session.flush()
-    novos = tsm.iniciar_viagem(viagem, alunos_paradas, now=T0)
+    novos = tsm.iniciar_viagem(viagem, alunos_paradas, ocorrido_em=T0)
     session.add_all(novos)
     session.commit()
 
@@ -100,7 +100,7 @@ def test_cheguei_na_primeira_parada_usa_iniciada_em_como_ancora(db_session):
     set_tenant(db_session, cenario["tenant_id"])
     ts1 = ts_list[0]
 
-    evento = tsm.registrar_cheguei(viagem, ts1, ts_list, now=_dt(300))
+    evento = tsm.registrar_cheguei(viagem, ts1, ts_list, ocorrido_em=_dt(300), registrado_em=_dt(300))
     db_session.add(evento)
     pos_evento.processar_cheguei(db_session, viagem, ts_list, ts1, _dt(300))
     db_session.commit()
@@ -119,13 +119,13 @@ def test_casa_pulada_nao_vira_amostra_de_trajeto(db_session):
     ts1, ts2, ts3 = ts_list
 
     # aluno 2 é pulado — ausente direto de aguardando, sem chegou_em/checkin_em
-    evento_ausente = tsm.registrar_ausente(viagem, ts2, now=_dt(50))
+    evento_ausente = tsm.registrar_ausente(viagem, ts2, ocorrido_em=_dt(50), registrado_em=_dt(50))
     db_session.add(evento_ausente)
     pos_evento.processar_ausente(db_session, viagem, ts_list, ts2, _dt(50))
     db_session.commit()
 
     # Cheguei(3) — o trecho anterior (até a parada 2, pulada) não pode virar amostra
-    evento_cheguei = tsm.registrar_cheguei(viagem, ts3, ts_list, now=_dt(600))
+    evento_cheguei = tsm.registrar_cheguei(viagem, ts3, ts_list, ocorrido_em=_dt(600), registrado_em=_dt(600))
     db_session.add(evento_cheguei)
     pos_evento.processar_cheguei(db_session, viagem, ts_list, ts3, _dt(600))
     db_session.commit()

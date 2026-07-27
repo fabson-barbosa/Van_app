@@ -41,6 +41,13 @@ class ViagemOut(BaseModel):
     varredura_confirmada: bool
     created_at: datetime
     updated_at: datetime
+    # Enriquecido para o app do Motorista (Bloco B4) — evita um segundo round-trip
+    # a `/api/rotas/{id}` (admin-only; o motorista não tem esse acesso, ver
+    # PROGRESSO.md B4). Preenchido por join em `api/viagens.py`, não persistido.
+    rota_nome: str
+    rota_turno: str
+    rota_escola: str | None
+    total_alunos: int
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +68,16 @@ class TripStudentOut(BaseModel):
     checkin_em: datetime | None
     checkout_em: datetime | None
     ausente_em: datetime | None
+    # Enriquecido para o app do Motorista (Bloco B4): `/api/alunos` e
+    # `/api/rotas/{id}/paradas` são admin-only (minimização de dados, LGPD —
+    # ver PROGRESSO.md B4), então o motorista não tem outra forma de ver o
+    # nome do aluno ou o endereço da parada, ambos exigidos pelo diálogo do
+    # Cheguei (CLAUDE.md §6). `parada_endereco` é o texto livre de
+    # `Parada.endereco`, sem parsing — heurística de logradouro/número erraria
+    # em endereços atípicos, e o diálogo é exatamente onde isso mais pesa.
+    # NÃO inclui `dados_medicos`.
+    aluno_nome: str
+    parada_endereco: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +86,20 @@ class TripStudentOut(BaseModel):
 
 
 class EventoAlunoRequest(BaseModel):
-    """`device_timestamp` é opcional — cobre o caso de fila offline (§4/§8),
-    em que o app reenvia eventos gerados enquanto sem sinal."""
+    """Bloco B4 — reconciliação de relógio + idempotência da fila offline (§4/§8).
+
+    `device_timestamp`/`device_enviado_em` alimentam
+    `app/services/reconciliacao.py` (o instante RECONCILIADO do evento — sem
+    os dois, cai no relógio do servidor, comportamento anterior ao B4).
+    `event_id` é gerado no aparelho no momento do toque e reenviado sem
+    trocar em cada tentativa da fila offline — é a chave de idempotência:
+    reenviar o mesmo `event_id` nunca grava um segundo evento, devolve o
+    estado atual em vez de 409.
+    """
 
     device_timestamp: datetime | None = None
+    device_enviado_em: datetime | None = None
+    event_id: uuid.UUID
 
 
 # ---------------------------------------------------------------------------

@@ -160,7 +160,7 @@ def _rodar(session) -> None:
     session.add(viagem)
     session.flush()
 
-    novos = tsm.iniciar_viagem(viagem, alunos_paradas, now=T0)
+    novos = tsm.iniciar_viagem(viagem, alunos_paradas, ocorrido_em=T0)
     session.add_all(novos)
     session.flush()
 
@@ -194,7 +194,7 @@ def _rodar(session) -> None:
             agora = agora + datetime.timedelta(minutes=1)
             nome = nomes_ts[ts.id]
             narrador.evento(agora, f"AUSENTE  -> {nome} (casa pulada, direto de 'aguardando')")
-            evento = tsm.registrar_ausente(viagem, ts, now=agora)
+            evento = tsm.registrar_ausente(viagem, ts, ocorrido_em=agora, registrado_em=agora)
             session.add(evento)
             pos_evento.processar_ausente(session, viagem, outros, ts, agora)
             session.flush()
@@ -207,7 +207,7 @@ def _rodar(session) -> None:
         agora = agora + datetime.timedelta(minutes=4)
         nome = nomes_ts[ts.id]
         narrador.evento(agora, f"CHEGUEI  -> {nome} (parada {ts.ordem})")
-        evento = tsm.registrar_cheguei(viagem, ts, outros, now=agora)
+        evento = tsm.registrar_cheguei(viagem, ts, outros, ocorrido_em=agora, registrado_em=agora)
         session.add(evento)
         pos_evento.processar_cheguei(session, viagem, outros, ts, agora, sender=sender)
         session.flush()
@@ -221,7 +221,7 @@ def _rodar(session) -> None:
 
         agora = agora + datetime.timedelta(seconds=30)
         narrador.evento(agora, f"CHECKIN  -> {nome}")
-        evento = tsm.registrar_checkin(viagem, ts, now=agora)
+        evento = tsm.registrar_checkin(viagem, ts, ocorrido_em=agora, registrado_em=agora)
         session.add(evento)
         pos_evento.processar_checkin(session, viagem, outros, ts, agora)
         session.flush()
@@ -230,7 +230,7 @@ def _rodar(session) -> None:
         if ts.ordem == ordem_desfazer:
             agora = agora + datetime.timedelta(seconds=20)
             narrador.evento(agora, f"DESFAZER CHECKIN -> {nome} (dentro da janela de 60s)")
-            evento = tsm.desfazer_checkin(viagem, ts, now=agora)
+            evento = tsm.desfazer_checkin(viagem, ts, ocorrido_em=agora, registrado_em=agora)
             session.add(evento)
             pos_evento.processar_desfazer_checkin(session, viagem, outros, ts, agora)
             session.flush()
@@ -238,7 +238,7 @@ def _rodar(session) -> None:
 
             agora = agora + datetime.timedelta(seconds=20)
             narrador.evento(agora, f"CHECKIN  -> {nome} (de novo, válido)")
-            evento = tsm.registrar_checkin(viagem, ts, now=agora)
+            evento = tsm.registrar_checkin(viagem, ts, ocorrido_em=agora, registrado_em=agora)
             session.add(evento)
             pos_evento.processar_checkin(session, viagem, outros, ts, agora)
             session.flush()
@@ -248,13 +248,13 @@ def _rodar(session) -> None:
     narrador.evento(agora, "Chegada na escola — checkout de todos os alunos a bordo")
     for ts in trip_students:
         if ts.estado == TripStudentEstado.A_BORDO:
-            evento = tsm.registrar_checkout(viagem, ts, now=agora)
+            evento = tsm.registrar_checkout(viagem, ts, ocorrido_em=agora, registrado_em=agora)
             session.add(evento)
             pos_evento.processar_checkout(session, viagem, trip_students, ts, agora)
     session.flush()
     narrador.diff_notificacoes()
 
-    tsm.finalizar_viagem(viagem, trip_students, now=agora)
+    tsm.finalizar_viagem(viagem, trip_students, ocorrido_em=agora)
     session.flush()
     narrador.evento(agora, f"Viagem finalizada — varredura confirmada: {viagem.varredura_confirmada}")
 

@@ -112,7 +112,7 @@ def _criar_cenario(
     session.add(viagem)
     session.flush()
 
-    novos = tsm.iniciar_viagem(viagem, alunos_paradas, now=T0)
+    novos = tsm.iniciar_viagem(viagem, alunos_paradas, ocorrido_em=T0)
     session.add_all(novos)
     session.commit()
 
@@ -146,7 +146,7 @@ def test_cheguei_dispara_chegada_e_iminencia_imediatas(db_session):
     set_tenant(db_session, cenario["tenant_id"])
     alvo = ts_list[0]
 
-    evento = tsm.registrar_cheguei(viagem, alvo, ts_list, now=_dt(300))
+    evento = tsm.registrar_cheguei(viagem, alvo, ts_list, ocorrido_em=_dt(300), registrado_em=_dt(300))
     db_session.add(evento)
     sender = StubFCMSender()
     pos_evento.processar_cheguei(db_session, viagem, ts_list, alvo, _dt(300), sender=sender)
@@ -180,7 +180,7 @@ def test_responsavel_sem_permissao_nao_recebe_notificacao(db_session):
     set_tenant(db_session, cenario["tenant_id"])
     alvo = ts_list[0]
 
-    evento = tsm.registrar_cheguei(viagem, alvo, ts_list, now=_dt(100))
+    evento = tsm.registrar_cheguei(viagem, alvo, ts_list, ocorrido_em=_dt(100), registrado_em=_dt(100))
     db_session.add(evento)
     pos_evento.processar_cheguei(db_session, viagem, ts_list, alvo, _dt(100))
     db_session.commit()
@@ -208,7 +208,7 @@ def test_checkin_agenda_preparo_com_trecho_curto_nao_inverte_com_iminencia(db_se
 
     ts1.estado = TripStudentEstado.CHEGOU
     ts1.chegou_em = _dt(100)
-    evento = tsm.registrar_checkin(viagem, ts1, now=_dt(150))
+    evento = tsm.registrar_checkin(viagem, ts1, ocorrido_em=_dt(150), registrado_em=_dt(150))
     db_session.add(evento)
     pos_evento.processar_checkin(db_session, viagem, ts_list, ts1, _dt(150))
     db_session.commit()
@@ -232,7 +232,7 @@ def test_checkin_agenda_preparo_para_n_mais_2(db_session):
 
     ts1.estado = TripStudentEstado.CHEGOU
     ts1.chegou_em = _dt(100)
-    evento = tsm.registrar_checkin(viagem, ts1, now=_dt(150))
+    evento = tsm.registrar_checkin(viagem, ts1, ocorrido_em=_dt(150), registrado_em=_dt(150))
     db_session.add(evento)
     pos_evento.processar_checkin(db_session, viagem, ts_list, ts1, _dt(150))
     db_session.commit()
@@ -261,7 +261,7 @@ def _preparar_checkin_com_preparo_pendente(session, n_paradas=4):
     ts1 = ts_list[0]
     ts1.estado = TripStudentEstado.CHEGOU
     ts1.chegou_em = _dt(100)
-    evento = tsm.registrar_checkin(viagem, ts1, now=_dt(150))
+    evento = tsm.registrar_checkin(viagem, ts1, ocorrido_em=_dt(150), registrado_em=_dt(150))
     session.add(evento)
     pos_evento.processar_checkin(session, viagem, ts_list, ts1, _dt(150))
     session.commit()
@@ -276,7 +276,7 @@ def test_desfazer_checkin_cancela_preparo_pendente(db_session):
     alvo_n2 = ts_list[2]
     assert len(_preparo_pendente(db_session, alvo_n2.id)) == 1
 
-    evento = tsm.desfazer_checkin(viagem, ts1, now=_dt(160))
+    evento = tsm.desfazer_checkin(viagem, ts1, ocorrido_em=_dt(160), registrado_em=_dt(160))
     db_session.add(evento)
     pos_evento.processar_desfazer_checkin(db_session, viagem, ts_list, ts1, _dt(160))
     db_session.commit()
@@ -296,7 +296,7 @@ def test_marcar_ausente_cancela_seu_proprio_preparo_pendente(db_session):
     alvo_n2 = ts_list[2]
     assert len(_preparo_pendente(db_session, alvo_n2.id)) == 1
 
-    evento = tsm.registrar_ausente(viagem, alvo_n2, now=_dt(400))
+    evento = tsm.registrar_ausente(viagem, alvo_n2, ocorrido_em=_dt(400), registrado_em=_dt(400))
     db_session.add(evento)
     pos_evento.processar_ausente(db_session, viagem, ts_list, alvo_n2, _dt(400))
     db_session.commit()
@@ -359,7 +359,9 @@ def test_atraso_acumulado_e_atraso_manual_sao_campos_independentes(db_session):
     set_tenant(db_session, cenario["tenant_id"])
     alvo = ts_list[0]
 
-    evento = tsm.registrar_cheguei(viagem, alvo, ts_list, now=_dt(9999))  # bem atrasado vs. a semente
+    evento = tsm.registrar_cheguei(
+        viagem, alvo, ts_list, ocorrido_em=_dt(9999), registrado_em=_dt(9999)
+    )  # bem atrasado vs. a semente
     db_session.add(evento)
     pos_evento.processar_cheguei(db_session, viagem, ts_list, alvo, _dt(9999))
     db_session.commit()

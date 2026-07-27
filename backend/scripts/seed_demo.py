@@ -9,18 +9,29 @@ Uso:
     cd backend
     python scripts/seed_demo.py
 
-Idempotente: se o tenant de demo já existir (mesmo nome), o script aborta
-sem duplicar dados — rode de novo só depois de limpar manualmente, se quiser
-recriar do zero.
+Idempotente: se o tenant de demo já existir (mesmo nome), o script NÃO
+recria cadastro (rotas/alunos/responsáveis) — mas ainda garante que exista
+uma viagem `planejada` de HOJE por rota (ver `_garantir_viagem_do_dia`), pra
+poder rodar o seed de novo em outro dia e testar o app do Motorista contra
+uma jornada válida sem precisar do painel do Gestor (que não existe nesta
+rodada). Rodar de novo no cadastro em si só depois de limpar manualmente, se
+quiser recriar do zero.
 
-Fora de escopo deste seed (dados de execução, não de cadastro — ver B2/B3):
-viagens, trip_students, eventos_aluno, leg_durations.
+Bloco B4 (app Motorista): viagens `planejada` do dia são criadas aqui, não
+por um endpoint — `POST /api/viagens` é admin-only de propósito (criar
+viagem é atribuição do Gestor, que não existe nesta rodada; abrir isso para
+o motorista inventaria uma regra de produto que o CLAUDE.md não define).
+
+Fora de escopo deste seed (dados de execução do motor de viagem — B2/B3):
+trip_students, eventos_aluno, leg_durations — só nascem quando o app do
+Motorista chama `POST /api/viagens/{id}/iniciar`.
 """
+import datetime
 import uuid
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
@@ -31,6 +42,7 @@ from app.models.rota import Parada, Rota
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.models.veiculo import Veiculo
+from app.models.viagem import Viagem, ViagemStatus
 
 TENANT_NOME = "Transportes Demo VaiVem"
 ADMIN_EMAIL = "admin@demo.vaivem.com.br"
@@ -77,10 +89,59 @@ ROTAS_DEMO = [
 ]
 
 
-def seed(db: Session) -> None:
-    existente = db.query(Tenant).filter(Tenant.nome == TENANT_NOME).first()
+def _garantir_viagem_do_dia(
+    db: Session, tenant_id: uuid.UUID, rota: Rota, veiculo: Veiculo, motorista: Motorista
+) -> tuple[Viagem, bool]:
+    """Cria a viagem `planejada` de hoje para a rota, se ainda não existir.
+
+    Chave de idempotência: `(rota_id, data)` — a mesma rota não pode ter duas
+    viagens no mesmo dia neste seed (o índice `ix_viagens_rota_id_data` da
+    migration 0004 já espelha isso como padrão de acesso, embora não seja
+    `UNIQUE` no schema — no mundo real duas viagens na mesma rota/dia são
+    possíveis, ex. reforço; o seed só não precisa gerar isso)."""
+    hoje = datetime.date.today()
+    existente = db.scalars(
+        select(Viagem).where(Viagem.rota_id == rota.id, Viagem.data == hoje)
+    ).first()
     if existente is not None:
-        print(f"Tenant '{TENANT_NOME}' já existe (id={existente.id}). Nada a fazer.")
+        return existente, False
+
+    viagem = Viagem(
+        id=uuid.uuid4(), tenant_id=tenant_id, rota_id=rota.id, veiculo_id=veiculo.id,
+        motorista_id=motorista.id, data=hoje, status=ViagemStatus.PLANEJADA,
+    )
+    db.add(viagem)
+    db.flush()
+    return viagem, True
+
+
+def seed(db: Session) -> None:
+    tenant = db.query(Tenant).filter(Tenant.nome == TENANT_NOME).first()
+    if tenant is not None:
+        print(f"Tenant '{TENANT_NOME}' já existe (id={tenant.id}). Garantindo viagens do dia...")
+        db.execute(text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": str(tenant.id)})
+
+        criadas = 0
+        for rota_spec in ROTAS_DEMO:
+            rota = db.scalars(
+                select(Rota).where(Rota.tenant_id == tenant.id, Rota.nome == rota_spec["nome"])
+            ).first()
+            veiculo = db.scalars(
+                select(Veiculo).where(Veiculo.tenant_id == tenant.id, Veiculo.placa == rota_spec["veiculo_placa"])
+            ).first()
+            motorista_user = db.scalars(
+                select(User).where(User.tenant_id == tenant.id, User.email == rota_spec["motorista_email"])
+            ).first()
+            if rota is None or veiculo is None or motorista_user is None:
+                print(f"  aviso: cadastro incompleto para '{rota_spec['nome']}' — pulando viagem do dia.")
+                continue
+            motorista = db.scalars(select(Motorista).where(Motorista.user_id == motorista_user.id)).first()
+
+            _, nova = _garantir_viagem_do_dia(db, tenant.id, rota, veiculo, motorista)
+            criadas += int(nova)
+
+        db.commit()
+        print(f"  viagens do dia criadas: {criadas} (já existentes: {len(ROTAS_DEMO) - criadas})")
         return
 
     tenant = Tenant(id=uuid.uuid4(), nome=TENANT_NOME, plano="pro", status_billing="ativo")
@@ -154,6 +215,8 @@ def seed(db: Session) -> None:
         db.add(rota)
         db.flush()
 
+        _garantir_viagem_do_dia(db, tenant.id, rota, veiculo, motorista)
+
         lon0, lat0 = rota_spec["origem"]
         for i, (aluno_nome, endereco) in enumerate(rota_spec["alunos"], start=1):
             # Pequeno deslocamento por parada só para os pontos não colidirem no mapa.
@@ -216,6 +279,7 @@ def seed(db: Session) -> None:
     print(f"  senha (todos os usuários): {SENHA_DEMO}")
     print(f"  rotas: {len(ROTAS_DEMO)}")
     print(f"  alunos: {sum(len(r['alunos']) for r in ROTAS_DEMO)}")
+    print(f"  viagens 'planejada' de hoje ({datetime.date.today()}): {len(ROTAS_DEMO)}")
     print("  usuários:")
     for email, papel in credenciais_impressas:
         print(f"    {papel:<12} {email}")

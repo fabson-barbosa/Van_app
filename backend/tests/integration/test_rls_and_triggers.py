@@ -130,14 +130,15 @@ def test_trigger_rejeita_update_em_eventos_aluno(db_session):
 
     novos = tsm.iniciar_viagem(
         viagem, [(cenario["aluno_id"], cenario["parada_id"], 1)],
-        now=datetime.datetime.now(datetime.timezone.utc),
+        ocorrido_em=datetime.datetime.now(datetime.timezone.utc),
     )
     db_session.add_all(novos)
     db_session.commit()
 
     aluno_ts = novos[0]
+    agora = datetime.datetime.now(datetime.timezone.utc)
     evento = tsm.registrar_cheguei(
-        viagem, aluno_ts, [aluno_ts], now=datetime.datetime.now(datetime.timezone.utc)
+        viagem, aluno_ts, [aluno_ts], ocorrido_em=agora, registrado_em=agora
     )
     db_session.add(evento)
     db_session.commit()
@@ -174,7 +175,7 @@ def test_fluxo_completo_iniciar_cheguei_checkin_checkout_finalizar(db_session):
     db_session.flush()
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    novos = tsm.iniciar_viagem(viagem, [(cenario["aluno_id"], cenario["parada_id"], 1)], now=now)
+    novos = tsm.iniciar_viagem(viagem, [(cenario["aluno_id"], cenario["parada_id"], 1)], ocorrido_em=now)
     db_session.add_all(novos)
     db_session.commit()
 
@@ -184,15 +185,15 @@ def test_fluxo_completo_iniciar_cheguei_checkin_checkout_finalizar(db_session):
         fn = getattr(tsm, acao)
         agora = datetime.datetime.now(datetime.timezone.utc)
         if acao == "registrar_cheguei":
-            evento = fn(viagem, aluno_ts, [aluno_ts], now=agora)
+            evento = fn(viagem, aluno_ts, [aluno_ts], ocorrido_em=agora, registrado_em=agora)
         else:
-            evento = fn(viagem, aluno_ts, now=agora)
+            evento = fn(viagem, aluno_ts, ocorrido_em=agora, registrado_em=agora)
         db_session.add(evento)
         db_session.commit()
 
     assert aluno_ts.estado == TripStudentEstado.ENTREGUE
 
-    tsm.finalizar_viagem(viagem, [aluno_ts], now=datetime.datetime.now(datetime.timezone.utc))
+    tsm.finalizar_viagem(viagem, [aluno_ts], ocorrido_em=datetime.datetime.now(datetime.timezone.utc))
     db_session.commit()
 
     assert viagem.status == ViagemStatus.FINALIZADA
