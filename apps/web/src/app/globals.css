@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+
+/* ------------------------------------------------------------------
+   VaiVem — tokens do design system
+   Paleta: grafite quente + fundos dessaturados + dourado como sinal.
+   Contraste alto sem preto puro (reduz fadiga em uso prolongado).
+------------------------------------------------------------------- */
+@theme {
+  --color-bg: #f4f3f0;
+  --color-surface: #ffffff;
+  --color-surface-2: #faf9f7;
+  --color-line: #e4e1db;
+  --color-line-strong: #d2cec6;
+
+  --color-ink: #232120;
+  --color-ink-2: #5c5852;
+  --color-ink-3: #8e8880;
+
+  --color-graphite: #2e2b29;
+  --color-graphite-2: #413c38;
+
+  --color-accent: #b8862b;
+  --color-accent-strong: #a2751f;
+  --color-accent-soft: #fdf6e7;
+  --color-accent-line: #ebd9ae;
+
+  --color-ok: #3f7d57;
+  --color-ok-soft: #edf5f0;
+  --color-warn: #b7791f;
+  --color-warn-soft: #fdf6e7;
+  --color-danger: #a94438;
+  --color-danger-soft: #fbefed;
+  --color-info: #3c6e8f;
+  --color-info-soft: #edf3f7;
+
+  --font-display: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 10px;
+
+  --shadow-card: 0 1px 2px rgb(35 33 32 / 0.05), 0 4px 16px rgb(35 33 32 / 0.04);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  /* Foco visível em todo lugar — requisito WCAG, não enfeite. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
