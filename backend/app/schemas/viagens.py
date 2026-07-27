@@ -76,6 +76,15 @@ class EventoAlunoRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# "Estou atrasado" (CLAUDE.md §5 — empurra a cauda manualmente)
+# ---------------------------------------------------------------------------
+
+
+class EstouAtrasadoRequest(BaseModel):
+    minutos: int = Field(gt=0, description="Minutos a empurrar a cauda da rota — sempre positivo.")
+
+
+# ---------------------------------------------------------------------------
 # Reordenação (CLAUDE.md §8 — só alunos ainda em 'aguardando')
 # ---------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ from app.models.consentimento import Consentimento
 from app.models.evento_aluno import EventoAluno, EventoAlunoTipo
 from app.models.leg_duration import LegDuration
 from app.models.motorista import Motorista
+from app.models.notificacao import NotificacaoAgendada, NotificacaoEstado, NotificacaoTipo
 from app.models.rota import Parada, Rota
 from app.models.tenant import Tenant
 from app.models.trip_student import TripStudent, TripStudentEstado
@@ -34,4 +35,7 @@ __all__ = [
     "EventoAluno",
     "EventoAlunoTipo",
     "LegDuration",
+    "NotificacaoAgendada",
+    "NotificacaoTipo",
+    "NotificacaoEstado",
 ]

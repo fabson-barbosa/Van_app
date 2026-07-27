@@ -93,6 +93,10 @@ class ParadaBase(BaseModel):
     ordem_base: int = Field(ge=0)
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    # "Estimativa do motorista" (CLAUDE.md §5) — semente do trajeto que
+    # termina nesta parada. Nula até alguém informar; `leg_duration.py` usa
+    # 240s como padrão enquanto isso (ver docstring de `Parada`).
+    duracao_estimada_segundos: int | None = Field(default=None, ge=0)
 
 
 class ParadaCreate(ParadaBase):
@@ -105,6 +109,7 @@ class ParadaUpdate(BaseModel):
     ordem_base: int | None = Field(default=None, ge=0)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
+    duracao_estimada_segundos: int | None = Field(default=None, ge=0)
 
 
 class ParadaOut(BaseModel):
@@ -117,6 +122,7 @@ class ParadaOut(BaseModel):
     ordem_base: int
     latitude: float
     longitude: float
+    duracao_estimada_segundos: int | None
     created_at: datetime
     updated_at: datetime
 

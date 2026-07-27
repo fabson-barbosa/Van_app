@@ -62,6 +62,7 @@ def _parada_out(parada: Parada) -> ParadaOut:
         ordem_base=parada.ordem_base,
         latitude=lat,
         longitude=lon,
+        duracao_estimada_segundos=parada.duracao_estimada_segundos,
         created_at=parada.created_at,
         updated_at=parada.updated_at,
     )

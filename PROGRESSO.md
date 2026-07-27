@@ -274,3 +274,155 @@ capturando o id antes do commit. `pytest -m integration` (6 testes) e
   serviço sinaliza `algum_a_bordo=True` na exceção de varredura final
   pendente, mas o envio real da notificação não está implementado (depende
   do agendador do B3).
+
+---
+
+## Bloco B3 — Aprendizado de tempos, projeção da cauda, agendador de notificações — **concluído**
+
+### Desenho aprovado antes de codar
+
+Apresentei o modelo de dados do agendador (`notificacoes_agendadas`: estado
+`agendado/enviado/cancelado` persistido, índice único PARCIAL
+`WHERE estado='agendado'` em `(trip_student_id, destinatario_user_id, tipo)`
+como mecanismo de idempotência) e as ambiguidades do CLAUDE.md §5. Decisões
+tomadas com o usuário:
+
+1. **Média móvel de `leg_duration`**: EWMA com `alpha=0.3` (não cumulativa).
+   Amostra inválida (negativa/zero, ou > 3x a média de referência — relógio
+   torto em evento offline) é descartada, nunca incorporada.
+2. **`atraso_acumulado_segundos`**: só diagnóstico/exibição (gestor).
+   `chegou_em(parada atual) - iniciada_em - previsto`. **NÃO** entra em
+   `projetar_cauda` — a projeção ancora no último evento real, que já embute
+   o atraso; somar de novo contaria em dobro. Criado um segundo campo,
+   `atraso_manual_segundos` (novo, só do botão "Estou atrasado"), que É o
+   que entra na projeção — são dois números com papéis diferentes, não
+   intercambiáveis.
+3. **Semente do trajeto**: `Parada.duracao_estimada_segundos` (nova coluna,
+   nullable — migration `0007`), preenchida no cadastro da rota. `None` ->
+   padrão de 240s.
+4. **Dwell**: calculado sob demanda a partir de `trip_students`
+   (`app/services/dwell.py`), sem tabela nova — CLAUDE.md pede estatística
+   de diagnóstico, não memória entre viagens como `leg_duration` tem.
+5. **Correção pedida no agendador**: proteger contra corrida entre o worker
+   e um cancelamento concorrente — `SELECT ... FOR UPDATE SKIP LOCKED`,
+   processando uma linha por vez, cada uma em sua própria transação.
+
+### Achado durante a implementação — efeito colateral do `atraso_manual_segundos`
+
+Ao formalizar "estou atrasado empurra a cauda", ficou claro que
+`atraso_acumulado_segundos` (só diagnóstico, decisão 2 acima) não dava conta
+disso sozinho — a projeção precisava de um número que sobrevivesse entre
+eventos e fosse somado por cima do `anchor`. Resolvido com uma segunda coluna
+nova (`Viagem.atraso_manual_segundos`, migration `0007`) em vez de sobrecarregar
+o campo já definido como diagnóstico — documentado no docstring de
+`app/models/viagem.py` para não se confundirem de novo no futuro.
+
+### Decisões de implementação não levadas de volta para aprovação (documentar aqui, não silenciar)
+
+- **Antecedência do aviso de preparo**: CLAUDE.md não define quando,
+  exatamente, o aviso "faltam ~X min" deve disparar antes da chegada.
+  Escolhido `PREPARO_ANTECEDENCIA_SEGUNDOS = 5min` (`app/services/pos_evento.py`)
+  — o agendamento é `ETA(N+2) - 5min`, e a faixa exibida no payload reflete
+  essa MESMA antecedência (~5-10min), para o texto continuar batendo com a
+  realidade no momento em que a notificação realmente dispara, não no
+  momento em que foi agendada.
+- **"N+1"/"N+2" pulam quem já é terminal**: interpretação de "próximas
+  paradas" como as próximas NÃO resolvidas (pula `ausente`), não
+  literalmente `ordem+1`/`ordem+2` — notificar o responsável de um aluno já
+  marcado ausente sobre "é a próxima" não faz sentido. `_n_esimo_nao_terminal`
+  em `pos_evento.py`.
+- **`atraso_acumulado_segundos` usa `leg_durations` "de agora", não um
+  snapshot congelado no instante exato do início da viagem**: uma previsão
+  verdadeiramente congelada exigiria uma coluna nova por `trip_student`
+  (fora do que foi aprovado). Como o campo é só exibição/diagnóstico (decisão
+  2), uma pequena deriva ao longo da viagem foi aceita como simplificação —
+  documentado no docstring de `app/services/projecao.py`.
+- **Desfazer um evento depois que uma amostra de `leg_duration` já foi
+  gravada não desfaz a amostra** (reverter um EWMA já misturado exigiria
+  guardar histórico completo, não pedido). Impacto pequeno, janela curta
+  (60s pro desfazer checkin) — documentado em `pos_evento.py`.
+- **`desfazer_checkin` cancela o preparo recalculando "quem seria N+2 agora"**,
+  não rastreando qual notificação aquele checkin específico originou (o
+  modelo não guarda essa proveniência). Na janela de 60s isso quase sempre
+  acerta o alvo certo; no raro caso de outro evento ter mudado a posição de
+  N+2 no meio do caminho, o próximo evento real corrige via
+  `_recalcular_e_reagendar` de qualquer forma.
+- **Recipientes de notificação respeitam `Responsavel.permissoes.receber_notificacoes`**
+  (campo que já existia desde o seed do B1) — permissivo por padrão se a
+  chave não existir, pra não quebrar responsáveis cadastrados antes dessa
+  flag existir.
+
+### O que foi feito
+
+- **Migration `0007_notificacoes_e_estimativas`**: tabela `notificacoes_agendadas`
+  (RLS fail-closed com o guard `NULLIF` da `0006`, índice único parcial), coluna
+  `paradas.duracao_estimada_segundos`, coluna `viagens.atraso_manual_segundos`.
+  Validada em runtime: `alembic downgrade -1` + `upgrade head` isolados, e um
+  ciclo completo `downgrade base` + `upgrade head` também rodado (ver seção
+  do gate acima).
+- **`app/services/leg_duration.py`** (puro): `validar_amostra`, `registrar_amostra`
+  (EWMA, semente como prior só na 1ª amostra real de um bucket), `escolher_estimativa`
+  (agregação progressiva §5 — dia+hora ≥5 amostras -> dia ≥5 -> geral >0 -> semente).
+- **`app/services/projecao.py`** (puro): `previsao_acumulada_ate`,
+  `calcular_atraso_acumulado`, `projetar_cauda`.
+- **`app/services/notificacoes.py`** (puro): `faixa_minutos`/`montar_payload_preparo`
+  (payload ESTRUTURADO, não texto pronto — redação é do app cliente, B4/B5),
+  `deve_notificar`, `FCMSender` (Protocol) + `StubFCMSender`.
+- **`app/services/dwell.py`** (puro): `calcular_dwell_segundos` — `None`
+  (nunca zero) se aluno pulado ou ainda sem checkin.
+- **`app/services/pos_evento.py`** (orquestração — DB, chamado pela API na
+  mesma transação de cada evento): grava amostra de trajeto em `Cheguei`
+  (descarta se a parada anterior foi pulada), atualiza
+  `atraso_acumulado_segundos`, dispara `chegada`/`iminência` imediatas,
+  agenda `preparo` em `Checkin`, cancela nos gatilhos críticos (`ausente`,
+  `desfazer_checkin`, `reordenar`), reagenda em qualquer recálculo
+  (`estou_atrasado` incluso).
+- **`app/services/agendador.py`**: `processar_notificacoes_pendentes` —
+  `SELECT ... FOR UPDATE SKIP LOCKED`, uma linha por transação, idempotente.
+- **`backend/scripts/processar_notificacoes.py`**: entrypoint (cron/Cloud
+  Scheduler externo — cadência é decisão de deploy, fora de escopo). Itera
+  tenant por tenant (não há sessão RLS "global"), com o mesmo listener
+  `after_begin` de `get_tenant_db` (necessário pelo mesmo motivo do achado
+  do gate: `set_config` local morre a cada `commit()`, e o processador
+  comita uma vez por notificação enviada).
+- **`app/api/viagens.py`**: todos os 6 endpoints de evento + `reordenar`
+  passam a chamar `pos_evento` antes do commit; novo endpoint
+  `POST /{viagem_id}/estou-atrasado`.
+- **Schemas**: `ParadaCreate/Update/Out` ganham `duracao_estimada_segundos`;
+  novo `EstouAtrasadoRequest`.
+
+### Testes
+
+- **Unitários, sem banco** (73 no total, incluindo B1/B2): `test_leg_duration.py`
+  (EWMA exato, outlier, agregação progressiva), `test_projecao.py` (soma
+  cumulativa, atraso não entra na projeção, atraso manual entra),
+  `test_notificacoes.py` (faixa de minutos, permissão), `test_dwell.py`
+  (aluno ausente/sem checkin -> `None`, nunca zero), `test_pos_evento_helpers.py`
+  (posicionamento N+1/N+2 pulando terminal, âncora da parada anterior —
+  inclusive "casa pulada" sem `checkin_em`).
+- **Integração, Postgres real** (20 no total, incluindo B1/B2):
+  `test_leg_duration_integracao.py` (amostra persistida corretamente, casa
+  pulada não gera linha nenhuma, agregação progressiva lê certo do banco),
+  `test_notificacoes_agendamento.py` (imediatas enviadas corretas, preparo
+  agendado, e — o pedido mais crítico — cada gatilho de cancelamento
+  realmente cancela: `desfazer_checkin`, `ausente`, `reordenar`; "estou
+  atrasado" reagenda em vez de duplicar), `test_agendador.py` (idempotência:
+  reprocessar não duplica envio; **corrida**: cancelamento concorrente
+  durante o processamento — duas `Session`/conexões físicas separadas,
+  `FOR UPDATE SKIP LOCKED` — nunca envia).
+- `pytest` (73 passed) e `pytest -m integration` (20 passed) limpos. Seed
+  roda idempotente sem quebrar com as colunas novas.
+
+### Pendências / TODOs explícitos
+
+- **Integração FCM real**: `FCMSender` é só interface + `StubFCMSender`.
+  Trocar por uma implementação real é B5 (app Responsável) ou além.
+- **Cadência de execução do agendador**: `scripts/processar_notificacoes.py`
+  existe e é idempotente, mas rodar periodicamente (cron/Cloud Scheduler) é
+  decisão de deploy, não foi configurado aqui.
+- **Notificação ao gestor de aluno esquecido a bordo (§7.1, TODO do B2)**:
+  ainda não implementada — o agendador do B3 dá a infraestrutura (`NotificacaoAgendada`
+  poderia cobrir isso), mas não foi pedido explicitamente no escopo do B3 e
+  não foi adicionado.
+- **App Motorista/Responsável (B4/B5)**: nada implementado, conforme pedido
+  — a projeção/cascata só existe no backend.

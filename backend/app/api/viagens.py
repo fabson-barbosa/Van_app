@@ -21,23 +21,25 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_tenant_db, require_role
 from app.models.aluno import Aluno
-from app.models.evento_aluno import EventoAluno
+from app.models.evento_aluno import EventoAluno, EventoAlunoTipo
 from app.models.motorista import Motorista
 from app.models.rota import Parada, Rota
 from app.models.trip_student import TripStudent
 from app.models.user import UserRole
 from app.models.veiculo import Veiculo
-from app.models.viagem import Viagem
+from app.models.viagem import Viagem, ViagemStatus
 from app.schemas.auth import CurrentUser
 from app.schemas.viagens import (
+    EstouAtrasadoRequest,
     EventoAlunoRequest,
     ReordenarRequest,
     TripStudentOut,
     ViagemCreate,
     ViagemOut,
 )
+from app.services import pos_evento
 from app.services import trip_state_machine as tsm
-from app.services.exceptions import DominioError
+from app.services.exceptions import DominioError, ViagemStatusInvalidoError
 
 router = APIRouter(prefix="/api/viagens", tags=["viagens"])
 
@@ -211,6 +213,31 @@ def finalizar_viagem(
     return viagem
 
 
+@router.post("/{viagem_id}/estou-atrasado", response_model=ViagemOut)
+def estou_atrasado(
+    viagem_id: uuid.UUID,
+    payload: EstouAtrasadoRequest,
+    db: Session = Depends(get_tenant_db),
+    user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
+) -> Viagem:
+    """Botão "Estou atrasado" (CLAUDE.md §5): empurra a cauda manualmente e
+    reagenda os avisos de preparo pendentes — não é o mesmo que
+    `atraso_acumulado_segundos` (só diagnóstico, ver `app/models/viagem.py`).
+    """
+    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    if viagem.status != ViagemStatus.EM_ANDAMENTO:
+        raise _mapear_erro_dominio(
+            ViagemStatusInvalidoError(viagem.status, ViagemStatus.EM_ANDAMENTO, "estou_atrasado")
+        )
+
+    todos = _listar_trip_students(db, viagem)
+    pos_evento.processar_estou_atrasado(db, viagem, todos, payload.minutos, _now())
+
+    db.commit()
+    db.refresh(viagem)
+    return viagem
+
+
 # ---------------------------------------------------------------------------
 # Trip students — leitura e reordenação
 # ---------------------------------------------------------------------------
@@ -249,6 +276,9 @@ def reordenar_trip_students(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
+    todos = _listar_trip_students(db, viagem)
+    pos_evento.processar_reordenar(db, viagem, todos, alvo, _now())
+
     db.commit()
     return sorted(alvo, key=lambda ts: ts.ordem)
 
@@ -258,13 +288,27 @@ def reordenar_trip_students(
 # ---------------------------------------------------------------------------
 
 
+_POS_EVENTO_POR_TIPO = {
+    EventoAlunoTipo.CHEGUEI: pos_evento.processar_cheguei,
+    EventoAlunoTipo.CHECKIN: pos_evento.processar_checkin,
+    EventoAlunoTipo.CHECKOUT: pos_evento.processar_checkout,
+    EventoAlunoTipo.AUSENTE: pos_evento.processar_ausente,
+    EventoAlunoTipo.DESFAZER_CHEGADA: pos_evento.processar_desfazer_chegada,
+    EventoAlunoTipo.DESFAZER_CHECKIN: pos_evento.processar_desfazer_checkin,
+}
+
+
 def _registrar_evento(
     db: Session,
     viagem: Viagem,
     trip_student: TripStudent,
     evento: EventoAluno,
+    trip_students_ordenados: list[TripStudent],
 ) -> TripStudent:
     db.add(evento)
+    # Motor de tempos + cascata de notificações (Bloco B3) — mesma transação
+    # do evento que os originou (app/services/pos_evento.py).
+    _POS_EVENTO_POR_TIPO[evento.tipo](db, viagem, trip_students_ordenados, trip_student, evento.timestamp)
     db.commit()
     db.refresh(trip_student)
     return trip_student
@@ -289,7 +333,7 @@ def marcar_cheguei(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)
 
 
 @router.post("/{viagem_id}/trip-students/{trip_student_id}/checkin", response_model=TripStudentOut)
@@ -302,6 +346,7 @@ def marcar_checkin(
 ) -> TripStudent:
     viagem = _get_viagem_autorizada(db, viagem_id, user)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
+    outros = _listar_trip_students(db, viagem)
 
     try:
         evento = tsm.registrar_checkin(
@@ -310,7 +355,7 @@ def marcar_checkin(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)
 
 
 @router.post("/{viagem_id}/trip-students/{trip_student_id}/checkout", response_model=TripStudentOut)
@@ -323,6 +368,7 @@ def marcar_checkout(
 ) -> TripStudent:
     viagem = _get_viagem_autorizada(db, viagem_id, user)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
+    outros = _listar_trip_students(db, viagem)
 
     try:
         evento = tsm.registrar_checkout(
@@ -331,7 +377,7 @@ def marcar_checkout(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)
 
 
 @router.post("/{viagem_id}/trip-students/{trip_student_id}/ausente", response_model=TripStudentOut)
@@ -344,6 +390,7 @@ def marcar_ausente(
 ) -> TripStudent:
     viagem = _get_viagem_autorizada(db, viagem_id, user)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
+    outros = _listar_trip_students(db, viagem)
 
     try:
         evento = tsm.registrar_ausente(
@@ -352,7 +399,7 @@ def marcar_ausente(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)
 
 
 @router.post("/{viagem_id}/trip-students/{trip_student_id}/desfazer-chegada", response_model=TripStudentOut)
@@ -365,6 +412,7 @@ def desfazer_chegada(
 ) -> TripStudent:
     viagem = _get_viagem_autorizada(db, viagem_id, user)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
+    outros = _listar_trip_students(db, viagem)
 
     try:
         evento = tsm.desfazer_chegada(
@@ -373,7 +421,7 @@ def desfazer_chegada(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)
 
 
 @router.post("/{viagem_id}/trip-students/{trip_student_id}/desfazer-checkin", response_model=TripStudentOut)
@@ -386,6 +434,7 @@ def desfazer_checkin(
 ) -> TripStudent:
     viagem = _get_viagem_autorizada(db, viagem_id, user)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
+    outros = _listar_trip_students(db, viagem)
 
     try:
         evento = tsm.desfazer_checkin(
@@ -394,4 +443,4 @@ def desfazer_checkin(
     except DominioError as exc:
         raise _mapear_erro_dominio(exc) from exc
 
-    return _registrar_evento(db, viagem, alvo, evento)
+    return _registrar_evento(db, viagem, alvo, evento, outros)

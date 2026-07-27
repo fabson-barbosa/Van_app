@@ -1,6 +1,13 @@
 """Rota e Parada — hierarquia Tenant → Rotas → Paradas (arquitetura.md, 1.1 e 5).
 
 `geo` usa PostGIS (POINT, SRID 4326 = WGS84/GPS) — motor de ETA depende disso.
+
+`Parada.duracao_estimada_segundos` (Bloco B3, CLAUDE.md §5) é a "estimativa do
+motorista" — semente do trajeto que TERMINA nesta parada, preenchida no
+cadastro da rota. Nula até alguém informar; `app/services/leg_duration.py`
+trata `None` como 240s (4min) por convenção, e só usa a semente enquanto o
+bucket real (`leg_durations`, chave `rota_id, ordem`) não tiver nenhuma
+amostra — a primeira amostra real já domina o EWMA (ver docstring do serviço).
 """
 import uuid
 
@@ -35,6 +42,7 @@ class Parada(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     endereco: Mapped[str | None] = mapped_column(nullable=True)
     ordem_base: Mapped[int] = mapped_column(nullable=False)
     geo = mapped_column(Geometry(geometry_type="POINT", srid=4326), nullable=False)
+    duracao_estimada_segundos: Mapped[int | None] = mapped_column(nullable=True)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Parada {self.nome or self.id} (ordem {self.ordem_base})>"
