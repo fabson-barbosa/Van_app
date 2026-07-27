@@ -88,10 +88,13 @@ def seed(db: Session) -> None:
     db.flush()
 
     # Tabelas com FORCE ROW LEVEL SECURITY exigem `app.tenant_id` setado mesmo
-    # para o role `postgres` — mesmo mecanismo usado por `get_tenant_db` em
-    # runtime (app/api/deps.py). `SET ... = :param` não aceita bind
-    # parameters; `set_config` sim.
-    db.execute(text("SELECT set_config('app.tenant_id', :tenant_id, false)"), {"tenant_id": str(tenant.id)})
+    # para o role dono das tabelas — mesmo mecanismo usado por `get_tenant_db`
+    # em runtime (app/api/deps.py). `SET ... = :param` não aceita bind
+    # parameters; `set_config` sim. `true` = escopo de transação: como este
+    # script não faz nenhum `db.commit()` intermediário antes do commit final,
+    # a transação aberta pelo primeiro `db.flush()` acima segue aberta durante
+    # todo o seed, então o valor permanece válido até o fim.
+    db.execute(text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": str(tenant.id)})
 
     admin = User(
         id=uuid.uuid4(),

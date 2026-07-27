@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vaivem
+      POSTGRES_PASSWORD: vaivem
+      POSTGRES_DB: vaivem
+    ports:
+      - "5432:5432"
+    volumes:
+      - vaivem_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaivem -d vaivem"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  vaivem_db_data:

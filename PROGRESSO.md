@@ -179,14 +179,89 @@ funcional, billing/assinaturas, painel web, iOS.
 - Rodado: `python -m py_compile` em todos os arquivos tocados/criados, import
   de `app.main`/`app.models`, `alembic upgrade head --sql`.
 
+### Portão de validação (CLAUDE.md §9) — **quitado**
+
+Ambiente local: `docker-compose.yml` (raiz do repo) sobe `postgis/postgis:16-3.4`
++ `redis:7-alpine`. Role `vaivem` (superuser, criado pela imagem oficial via
+`POSTGRES_USER`) é o owner e roda as migrations; role `vaivem_app` (LOGIN,
+sem superuser/createdb/createrole/bypassrls, GRANTs table-a-table + `ALTER
+DEFAULT PRIVILEGES` para migrations futuras) é quem a aplicação e os testes
+usam — necessário porque um role com `BYPASSRLS` (todo superuser) ignora RLS
+mesmo com `FORCE ROW LEVEL SECURITY`, o que tornaria os testes de RLS inúteis
+se rodassem como owner. `backend/.env` aponta para `vaivem_app`.
+
+Resultado dos 6 itens do gate, validados em runtime (Postgres real, não
+`--sql` offline):
+
+| Item | Resultado |
+|---|---|
+| (a) RLS fail-closed sem tenant setado | ✅ PASS |
+| (b) Isolamento entre tenants (leitura + escrita cruzada rejeitada) | ✅ PASS |
+| (c) `SET LOCAL` por transação, não `SET` de sessão | ❌ FALHOU na 1ª rodada → **corrigido** (ver abaixo) → ✅ PASS na revalidação |
+| (d) Trigger de `eventos_aluno` rejeita UPDATE/DELETE (mesmo para o owner) | ✅ PASS |
+| (e) `alembic downgrade base` + `upgrade head` | ✅ PASS |
+| (f) Seed roda 2x sem duplicar (2 rotas, 12 alunos) | ✅ PASS |
+
+**Achado estrutural em (c) e correção.** `app/api/deps.py::get_tenant_db` e
+`scripts/seed_demo.py` chamavam `set_config('app.tenant_id', valor, false)`
+— terceiro argumento `false` = escopo de **sessão**, não de transação. A
+engine usa pool de conexões (`app/core/db.py`); uma conexão física é
+reaproveitada entre requests de tenants diferentes. Provado em runtime: com
+`false`, o `app.tenant_id` de um request sobrevive ao `COMMIT` e fica
+"grudado" na conexão até o próximo `set_config` explícito — qualquer código
+futuro que reutilizasse essa conexão sem passar por `get_tenant_db` herdaria
+silenciosamente o tenant do request anterior em vez de falhar fechado
+(contradiz o próprio comentário do arquivo e a regra 7.3 do CLAUDE.md).
+
+Correção aplicada (`false` → `true`, escopo de transação) trouxe dois efeitos
+colaterais que só apareceram testando contra Postgres real, também corrigidos
+antes de fechar o gate:
+
+1. **Uma sessão pode abrir mais de uma transação por request** — cada
+   `db.commit()` de um endpoint fecha a corrente; a próxima query reabre uma
+   nova via autobegin do SQLAlchemy, e `set_config(..., true)` só vale para a
+   transação em que foi chamado. `get_tenant_db` agora registra um listener
+   `after_begin` na sessão que reaplica o `set_config` toda vez que uma
+   transação nova começa — não só uma vez no início do generator.
+2. **GUC placeholder tocada reseta para string vazia (`''`), não `NULL`.**
+   Uma vez que `app.tenant_id` é setada numa conexão (mesmo com escopo
+   local, mesmo já resetada), `current_setting('app.tenant_id', true)` volta
+   `''` no fim da transação — e o cast `::uuid` das políticas de RLS
+   quebrava com `invalid input syntax for type uuid: ""` em vez de devolver
+   zero linhas. Nova migration `0006_rls_guard_empty_tenant_guc` blinda as
+   11 políticas (`NULLIF(current_setting(...), '')::uuid`) para que o reset
+   vire fail-closed silencioso, não erro 500.
+
+Também documentado (não removido — é necessário para o login funcionar antes
+de saber o tenant, ver comentário em `migrations/0001_initial_schema.py`):
+`app/core/db.py::get_db` (usado só por `app/api/auth.py`) agora tem aviso
+explícito de que não seta `app.tenant_id` e não deve ser usado em nenhuma
+rota que toque tabela com `tenant_id`.
+
+**Testes de regressão** (`tests/integration/test_rls_and_triggers.py`,
+`pytest -m integration`) travam a correção:
+- `test_set_config_local_nao_vaza_para_proxima_transacao_na_mesma_conexao`:
+  duas transações seguidas na mesma conexão física, tenants diferentes — a
+  segunda, sem setar tenant, tem que ver zero linhas.
+- `test_set_config_local_guc_tocada_e_resetada_nao_gera_erro_de_cast`: prova
+  o efeito colateral 2 acima e que a migration `0006` neutraliza o erro.
+- `test_get_tenant_db_reaplica_tenant_apos_commit_no_meio_do_request`: prova
+  o efeito colateral 1 acima direto na dependency `get_tenant_db`.
+
+De brinde: a suíte de integração já existia mas nunca tinha rodado contra um
+Postgres real (o comentário do próprio arquivo dizia isso). Ao rodar pela
+primeira vez, `_alembic_upgrade_head` em `conftest.py` falhava porque tentava
+rodar migrations com as credenciais de `vaivem_app` (sem privilégio de DDL)
+— corrigido para sempre usar a URL do owner nesse fixture, independente do
+`DATABASE_URL` usado pelo resto da suíte. E `test_rls_fail_closed_sem_tenant_setado`
+acessava `viagem.id` depois do `commit()` (atributo expirado) dentro de uma
+transação onde o tenant já tinha sido limpo — o refresh implícito, barrado
+pelo RLS, virava `ObjectDeletedError` em vez de devolver lista vazia; corrigido
+capturando o id antes do commit. `pytest -m integration` (6 testes) e
+`pytest` padrão (27 testes) passam limpos.
+
 ### Pendências / TODOs explícitos
 
-- **Portão de validação do B2 (CLAUDE.md §9) continua PENDENTE.** Antes de
-  confiar neste bloco em produção, rodar `pytest -m integration` contra um
-  Postgres+PostGIS real e confirmar: RLS fail-closed nas tabelas novas/
-  alteradas, trigger de imutabilidade de `eventos_aluno` (incluindo o novo
-  valor de enum e a nova coluna), e o fluxo ponta-a-ponta da máquina de
-  estados. Nada disso foi exercitado em runtime.
 - **Cascata de notificações (§5)** e **agendador FCM**: não implementados —
   são do B3. O B2 só garante que a informação necessária (ex.: `algum_a_bordo`
   na varredura final, `estado_anterior` nos eventos) existe para o B3

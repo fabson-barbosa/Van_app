@@ -18,7 +18,18 @@ class Base(DeclarativeBase):
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependência FastAPI: abre uma sessão por request e garante o fechamento."""
+    """Dependência FastAPI: abre uma sessão por request e garante o fechamento.
+
+    ATENÇÃO — esta sessão NÃO seta `app.tenant_id`. NÃO use em nenhuma rota
+    que leia ou escreva tabelas com coluna `tenant_id` (RLS fail-closed faz
+    essas queries voltarem zero linhas silenciosamente, não um erro óbvio).
+    Use `app.api.deps.get_tenant_db` para isso.
+
+    O único uso legítimo de `get_db` hoje é o login (`app/api/auth.py`), que
+    precisa localizar o usuário por e-mail ANTES de saber o tenant — ver o
+    comentário em `migrations/versions/0001_initial_schema.py` sobre por que
+    `users` foi deixada fora do RLS de propósito.
+    """
     db = SessionLocal()
     try:
         yield db

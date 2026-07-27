@@ -17,6 +17,8 @@ from shapely.geometry import Point
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from app.api.deps import get_tenant_db
+from app.core.db import engine
 from app.core.security import hash_password
 from app.models.aluno import Aluno
 from app.models.motorista import Motorista
@@ -26,6 +28,7 @@ from app.models.trip_student import TripStudent, TripStudentEstado
 from app.models.user import User, UserRole
 from app.models.veiculo import Veiculo
 from app.models.viagem import Viagem, ViagemStatus
+from app.schemas.auth import CurrentUser
 from app.services import trip_state_machine as tsm
 from tests.integration.conftest import clear_tenant, set_tenant
 
@@ -89,8 +92,9 @@ def test_rls_fail_closed_sem_tenant_setado(db_session):
     cenario = _criar_cenario_basico(db_session)
 
     set_tenant(db_session, cenario["tenant_id"])
+    viagem_id = uuid.uuid4()
     viagem = Viagem(
-        id=uuid.uuid4(), tenant_id=cenario["tenant_id"], rota_id=cenario["rota_id"],
+        id=viagem_id, tenant_id=cenario["tenant_id"], rota_id=cenario["rota_id"],
         veiculo_id=cenario["veiculo_id"], motorista_id=cenario["motorista_id"],
         data=datetime.date(2026, 7, 27), status=ViagemStatus.PLANEJADA,
     )
@@ -98,7 +102,12 @@ def test_rls_fail_closed_sem_tenant_setado(db_session):
     db_session.commit()
 
     clear_tenant(db_session)
-    resultado = db_session.query(Viagem).filter(Viagem.id == viagem.id).all()
+    # Usa `viagem_id` (guardado antes do commit), não `viagem.id`: o commit
+    # expira os atributos do objeto (expire_on_commit=True), e lê-lo agora —
+    # dentro da transação com o tenant já limpo — dispararia um refresh que
+    # o RLS torna invisível, virando `ObjectDeletedError` em vez de zero
+    # linhas (o objeto não foi deletado, só ficou fora do escopo do tenant).
+    resultado = db_session.query(Viagem).filter(Viagem.id == viagem_id).all()
     assert resultado == [], "RLS deve ser fail-closed: sem app.tenant_id, zero linhas — nunca todas."
 
 
@@ -188,3 +197,94 @@ def test_fluxo_completo_iniciar_cheguei_checkin_checkout_finalizar(db_session):
 
     assert viagem.status == ViagemStatus.FINALIZADA
     assert viagem.varredura_confirmada is True
+
+
+# ---------------------------------------------------------------------------
+# Regressão — set_config escopo de transação (portão B1->B2, achado runtime)
+#
+# `app/api/deps.py::get_tenant_db` usava `set_config(..., false)` (escopo de
+# SESSÃO). Numa engine com pool de conexões, isso deixa o `app.tenant_id` de
+# um request grudado na conexão física depois do COMMIT — disponível para o
+# próximo request que reaproveitar essa conexão. Estes testes travam a
+# correção (`true`, escopo de transação) e o efeito colateral dela (migration
+# 0006 — GUC placeholder tocada reseta para `''`, não `NULL`).
+# ---------------------------------------------------------------------------
+
+
+def test_set_config_local_nao_vaza_para_proxima_transacao_na_mesma_conexao(db_session):
+    """Duas transações seguidas na MESMA conexão física, tenants diferentes —
+    a segunda, sem setar tenant, tem que enxergar ZERO linhas (fail-closed),
+    nunca as linhas do tenant da transação anterior.
+
+    Usa `engine.connect()` bruto (não a Session do ORM) para controlar as
+    fronteiras BEGIN/COMMIT com precisão e garantir que é literalmente a
+    mesma conexão física nas duas transações — é o cenário do pool de
+    conexões reaproveitado entre requests de tenants diferentes.
+    """
+    cenario = _criar_cenario_basico(db_session)
+    tenant_id = str(cenario["tenant_id"])
+
+    with engine.connect() as conn:
+        with conn.begin():
+            conn.execute(text("SELECT set_config('app.tenant_id', :tid, true)"), {"tid": tenant_id})
+            vistas = conn.execute(text("SELECT count(*) FROM rotas")).scalar_one()
+            assert vistas == 1, "com o tenant setado, a rota do cenário deve aparecer"
+
+        # Nova transação, MESMA conexão física — ninguém chamou set_config de novo.
+        with conn.begin():
+            vistas = conn.execute(text("SELECT count(*) FROM rotas")).scalar_one()
+            assert vistas == 0, (
+                "RLS fail-closed: sem tenant setado nesta transação, zero linhas — "
+                "nunca as do tenant anterior (era isso que `false`/escopo de sessão quebrava)."
+            )
+
+
+def test_set_config_local_guc_tocada_e_resetada_nao_gera_erro_de_cast(db_session):
+    """Efeito colateral descoberto ao validar o fix acima: uma GUC placeholder
+    (`app.tenant_id`) que já foi tocada na conexão volta para string vazia
+    (`''`) no reset, não `NULL`. Sem a blindagem `NULLIF(..., '')` na política
+    (migration 0006), o cast `::uuid` bruto quebraria com
+    `invalid input syntax for type uuid: ""` em vez de fail-closed silencioso.
+    """
+    with engine.connect() as conn:
+        with conn.begin():
+            conn.execute(text("SELECT set_config('app.tenant_id', :tid, true)"), {"tid": str(uuid.uuid4())})
+
+        with conn.begin():
+            valor = conn.execute(text("SELECT current_setting('app.tenant_id', true)")).scalar_one()
+            assert valor == "", "confirma a premissa: reset de GUC já tocada vira string vazia, não NULL"
+
+            # Sem a migration 0006, esta linha levantaria ProgrammingError
+            # ("invalid input syntax for type uuid") em vez de devolver 0.
+            vistas = conn.execute(text("SELECT count(*) FROM rotas")).scalar_one()
+            assert vistas == 0
+
+
+def test_get_tenant_db_reaplica_tenant_apos_commit_no_meio_do_request(db_session):
+    """Dentro de UM request (uma chamada a `get_tenant_db`), se o handler der
+    mais de um `commit()` (padrão comum nas rotas de `viagens.py`/`alunos.py`),
+    o tenant precisa continuar aplicado nas transações seguintes — não só na
+    primeira.
+
+    Sem o listener `after_begin` em `get_tenant_db`, um `set_config` único no
+    início do generator morreria no primeiro `commit()` (escopo local) e a
+    segunda query do mesmo request voltaria zero linhas silenciosamente.
+    """
+    cenario = _criar_cenario_basico(db_session)
+
+    current_user = CurrentUser(
+        id=uuid.uuid4(), tenant_id=cenario["tenant_id"], email="teste@teste.com", role=UserRole.ADMIN,
+    )
+
+    gen = get_tenant_db(current_user)
+    session = next(gen)
+    try:
+        primeira = session.execute(text("SELECT count(*) FROM rotas")).scalar_one()
+        assert primeira == 1
+
+        session.commit()  # fecha a 1ª transação — a 2ª abre via autobegin na próxima query
+
+        segunda = session.execute(text("SELECT count(*) FROM rotas")).scalar_one()
+        assert segunda == 1, "tenant tem que continuar aplicado após o commit no meio do request"
+    finally:
+        gen.close()
