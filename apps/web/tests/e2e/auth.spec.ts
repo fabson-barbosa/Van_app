@@ -27,7 +27,8 @@ test('recusa credencial inválida', async ({ page }) => {
   await page.getByLabel('E-mail').fill('owner@aurora.com.br');
   await page.getByLabel('Senha').fill('senhaerrada');
   await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('alert')).toContainText('incorretos');
+  // Escopado ao form: o route announcer do Next também expõe role="alert".
+  await expect(page.locator('form').getByRole('alert')).toContainText('incorretos');
 });
 
 test('papel financeiro não vê o menu de alunos', async ({ page }) => {
