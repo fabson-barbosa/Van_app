@@ -5,10 +5,10 @@ latitude/longitude (mais natural para o painel do gestor e para o app
 motorista) e converte para/de `Geometry` aqui — o motor de ETA (Sprint 2)
 consome a coluna `geo` diretamente via PostGIS.
 
-`Parada` não carrega `tenant_id` própria (herda o isolamento da `Rota` via
-`rota_id` — ver migration 0001 e arquitetura.md, seção 5); por isso toda
-operação de parada primeiro carrega a rota (que passa pela RLS) e valida o
-vínculo, fechando o isolamento entre tenants também para paradas.
+`Parada` carrega `tenant_id` própria (RLS direta — ver migration
+0003_rls_paradas_responsaveis) além de `rota_id`; ainda assim toda operação
+carrega a rota primeiro para validar o vínculo rota/parada e devolver 404 em
+vez de vazar erro de FK.
 """
 import uuid
 
@@ -170,6 +170,7 @@ def criar_parada(
     rota = _get_rota_or_404(db, rota_id)
     dados = payload.model_dump(exclude={"latitude", "longitude"})
     parada = Parada(
+        tenant_id=rota.tenant_id,
         rota_id=rota.id,
         geo=_latlon_to_geo(payload.latitude, payload.longitude),
         **dados,

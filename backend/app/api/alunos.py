@@ -1,9 +1,9 @@
 """CRUD de alunos e responsáveis — vínculo aluno ↔ parada ↔ responsável (Sprint 1).
 
-`Aluno` é escopado por tenant (via `TenantMixin` + RLS). `Responsavel` não tem
-`tenant_id` próprio — o vínculo com o tenant vem por `aluno_id` (assim como
-`Parada` herda de `Rota` — ver `rotas.py`). Por isso toda operação em
-responsável primeiro carrega o aluno (que passa pela RLS) e valida o vínculo.
+`Aluno` e `Responsavel` são escopados por tenant (via `TenantMixin` + RLS —
+ver migration 0003_rls_paradas_responsaveis para `Responsavel`). Ainda assim
+toda operação em responsável primeiro carrega o aluno e valida o vínculo,
+para devolver 404 em vez de vazar erro de FK.
 
 `parada_id` (em `Aluno`) e `user_id` (em `Responsavel`) referenciam outras
 tabelas com RLS própria — validamos a existência explicitamente para devolver
@@ -57,8 +57,8 @@ def _get_responsavel_or_404(db: Session, aluno: Aluno, responsavel_id: uuid.UUID
 
 def _validar_parada(db: Session, parada_id: uuid.UUID | None) -> None:
     """`parada_id` é opcional; quando informado, precisa pertencer ao tenant
-    (a RLS de `rotas` cuida disso — `db.get` só acha paradas cuja rota é do
-    tenant atual, pois a query passa pela política de `paradas`)."""
+    (RLS própria de `paradas` cuida disso — `db.get` só acha paradas do
+    tenant atual)."""
     if parada_id is not None and db.get(Parada, parada_id) is None:
         raise _PARADA_INVALIDA
 
@@ -162,7 +162,7 @@ def criar_responsavel(
             detail="aluno_id do payload precisa corresponder ao aluno da URL.",
         )
     _validar_user(db, payload.user_id)
-    responsavel = Responsavel(**payload.model_dump())
+    responsavel = Responsavel(tenant_id=aluno.tenant_id, **payload.model_dump())
     db.add(responsavel)
     db.commit()
     db.refresh(responsavel)

@@ -32,7 +32,7 @@ class Aluno(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
         return f"<Aluno {self.nome}>"
 
 
-class Responsavel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+class Responsavel(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "responsaveis"
 
     aluno_id: Mapped[uuid.UUID] = mapped_column(

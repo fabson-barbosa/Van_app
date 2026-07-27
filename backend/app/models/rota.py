@@ -25,7 +25,7 @@ class Rota(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
         return f"<Rota {self.nome} ({self.turno})>"
 
 
-class Parada(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+class Parada(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     __tablename__ = "paradas"
 
     rota_id: Mapped[uuid.UUID] = mapped_column(
