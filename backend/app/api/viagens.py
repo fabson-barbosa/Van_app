@@ -54,7 +54,7 @@ from app.schemas.viagens import (
 from app.services import pos_evento
 from app.services import trip_state_machine as tsm
 from app.services.exceptions import DominioError, ViagemStatusInvalidoError
-from app.services.expo_push import build_sender
+from app.services.canal_router import build_sender
 from app.services.reconciliacao import reconciliar
 
 router = APIRouter(prefix="/api/viagens", tags=["viagens"])

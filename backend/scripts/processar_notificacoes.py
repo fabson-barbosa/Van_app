@@ -28,7 +28,7 @@ from sqlalchemy import event, select, text
 from app.core.db import SessionLocal
 from app.models.tenant import Tenant
 from app.services.agendador import processar_notificacoes_pendentes
-from app.services.expo_push import build_sender
+from app.services.canal_router import build_sender
 
 
 def _processar_tenant(tenant_id, agora) -> int:

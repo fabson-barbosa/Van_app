@@ -1025,3 +1025,155 @@ depois): `expo-notifications` (~0.32.17), `expo-device` (~8.0.10),
 - Retenção/expurgo LGPD (§7.5): continua atribuída ao B6, fora desta
   rodada — nenhum dado novo deste bloco (device_tokens, notificações)
   muda essa pendência.
+
+---
+
+## Fora da numeração B1–B6 — WhatsApp via Twilio Sandbox, canal de notificação (piloto) — **concluído (código); validação de banco PENDENTE**
+
+Pedido fora do escopo original do CLAUDE.md (que não cobre WhatsApp) —
+objetivo é piloto para reduzir a fricção de instalar app no celular de 12
+pais. Terceiro adaptador do mesmo agendador do B3: nenhuma linha de
+`app/services/agendador.py` ou `app/services/pos_evento.py` mudou —
+confirmado desenhando o roteamento de canal como um adaptador que implementa
+o mesmo `FCMSender` Protocol, e não como uma reescrita do agendador.
+
+### Desenho apresentado e aprovado antes de codar
+
+Mostrado ao usuário antes de qualquer linha de código: onde os dois
+adaptadores novos plugam (dois pontos de troca só de import — `app/api/viagens.py`
+e `scripts/processar_notificacoes.py` — nada mais) e o modelo de dados da
+preferência de canal (`Responsavel.telefone`/`canal_notificacao`, não em
+`User`). Uma decisão explícita, levada como pergunta:
+
+1. **Diagnóstico de sucesso/erro do envio de WhatsApp**: duas opções
+   apresentadas — (a) só log estruturado, como o `ExpoPushSender` já faz; ou
+   (b) persistir um campo novo em `NotificacaoAgendada` (exigiria tocar 1
+   linha em `agendador.py` e 1 em `pos_evento.py` para capturar o retorno de
+   `sender.enviar()`). **Decisão do usuário: (a), só log.** Zero mudança em
+   `agendador.py`/`pos_evento.py` — o Protocol `FCMSender.enviar() -> None`
+   continua exatamente como o B3 definiu.
+
+### O que foi feito
+
+- **Migration `0010_canal_notificacao_responsavel`**: `responsaveis` ganha
+  `telefone` (String(20), nullable — E.164, validado só no Pydantic, não no
+  banco) e `canal_notificacao` (enum `push`/`whatsapp`/`ambos`, NOT NULL,
+  `server_default='push'` — todo responsável já cadastrado continua só no
+  push, comportamento inalterado até alguém trocar explicitamente).
+  Validada com `alembic upgrade head --sql` (offline, em sequência com
+  0001–0009); **não rodada contra Postgres real neste ambiente** (sem Docker
+  disponível — mesma situação já enfrentada em blocos anteriores, ver
+  B1/B5).
+- **`app/models/aluno.py`**: `CanalNotificacao` (enum Python) + os dois
+  campos novos em `Responsavel`.
+- **`app/schemas/cadastros.py`**: `ResponsavelBase`/`Update` ganham
+  `telefone`/`canal_notificacao`; `field_validator` rejeita qualquer
+  `telefone` fora de E.164 (`^\+[1-9]\d{7,14}$`) tanto no `Create` quanto no
+  `Update` — endpoints existentes (`POST`/`PATCH /api/alunos/{id}/responsaveis`)
+  não precisaram de nenhuma mudança de código, só passam a aceitar os campos
+  novos (já usam `payload.model_dump()`/`exclude_unset=True`).
+- **`app/core/config.py`**/**`.env.example`**: `TWILIO_ACCOUNT_SID`,
+  `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` — só variável de ambiente,
+  nunca hardcoded, nunca commitado (`.env` já está no `.gitignore` do
+  projeto; só o `.example` foi versionado).
+- **`app/services/whatsapp_twilio.py`** (novo — `TwilioWhatsAppSender`,
+  terceiro `FCMSender`): resolve `Responsavel`/`Aluno` a partir de
+  `destinatario_user_id` + `payload["aluno_id"]` (o `aluno_id` já vinha no
+  payload desde o B5, via `pos_evento._payload_com_rota` — não precisou
+  mudar nada lá), monta uma das 3 mensagens (preparo/iminência/chegada,
+  sempre faixa de minutos — nunca minuto exato, CLAUDE.md §5) e chama a REST
+  API da Twilio via `httpx` puro (sem SDK novo — mesmo estilo do
+  `ExpoPushSender`, cliente injetável para teste). Timeout 5s. **Nunca
+  lança**: falha de rede, credencial ausente, responsável sem telefone, ou
+  número rejeitado pela Twilio (HTTP 4xx) tudo vira log e `return`, nunca
+  exceção — mesmo contrato de "nunca falha" que já existia. Tipo sem
+  redação no WhatsApp (`dismiss_chegada`) não gera texto nenhum.
+- **`app/services/canal_router.py`** (novo — `ChannelRouterSender`, mesmo
+  Protocol): resolve o `Responsavel` (mesma dupla `user_id`+`aluno_id`) e
+  despacha para `push_sender`/`whatsapp_sender`/ambos conforme
+  `canal_notificacao`. `dismiss_chegada` vai **sempre** só para o push,
+  independente da preferência — não existe notificação persistente no
+  WhatsApp para fechar (ver limitação abaixo). Responsável não encontrado
+  (ex.: `aluno_id` ausente do payload) cai no push por padrão — nunca quebra
+  o envio. Expõe `build_sender(db)` que compõe
+  `expo_push.build_sender(db)` + `whatsapp_twilio.build_sender(db)`.
+- **Dois pontos de troca, nada mais**: `app/api/viagens.py` e
+  `scripts/processar_notificacoes.py` trocaram só o import de `build_sender`
+  — de `app.services.expo_push` para `app.services.canal_router`.
+
+### Limitações do Sandbox da Twilio (registrado conforme pedido)
+
+- **Número compartilhado**: não é um número dedicado ao tenant/operador —
+  é o número de sandbox da Twilio, compartilhado entre todo mundo que testa
+  a API nesse modo.
+- **Opt-in manual por destinatário**: cada responsável precisa mandar
+  `join <código>` pelo WhatsApp para o número do sandbox antes de poder
+  receber qualquer mensagem — não tem como o backend "cadastrar" isso
+  programaticamente.
+- **Vínculo expira a cada 3 dias**: passado esse prazo sem interação, o
+  destinatário precisa mandar o `join` de novo. Não há como o backend
+  detectar isso de antemão — a Twilio simplesmente rejeita o envio (o
+  `TwilioWhatsAppSender` trata como qualquer outro erro HTTP: log, nunca
+  exceção).
+- **Proibido em produção pelos termos da Twilio**: sandbox é só para
+  desenvolvimento/teste. Produção exige um número WhatsApp Business
+  aprovado (processo separado, fora do escopo deste piloto).
+- **Perda conhecida frente ao push — sem notificação persistente**: a
+  notificação de `chegada` no push é `sticky`/`ongoing` com o tempo de
+  espera correndo (CLAUDE.md §5, e o B5 documentou o fallback de
+  `sticky: true` + texto reescrito a cada ~45s). No WhatsApp **não existe**
+  esse conceito — é sempre mensagem única, sem atualização/timer. Aceito
+  como limitação de canal: quem prefere WhatsApp troca a notificação viva
+  por uma mensagem de texto simples, sem o cronômetro correndo.
+
+### Testes
+
+- **Unitários, sem banco** (111 no total, +12 sobre o B5):
+  `tests/test_schemas_responsavel.py` — `telefone` E.164 válido/inválido
+  (com e sem `+`, DDI começando em 0, formatação humana com espaço/hífen,
+  string aleatória), `None` aceito, validação no `Update` também, default de
+  `canal_notificacao` é `push`.
+- **Integração, Postgres real (`pytest -m integration`, escritas mas NÃO
+  executadas neste ambiente — sem Docker disponível, mesma situação
+  recorrente desde o B1; rodar antes de considerar o piloto fechado de
+  verdade)**:
+  - `tests/integration/test_whatsapp_twilio.py`: sucesso (texto contém nome
+    do aluno + faixa de minutos, `To`/`From` corretos com prefixo
+    `whatsapp:`), falha de rede (`httpx.ConnectError`) não lança, número
+    rejeitado pela Twilio (HTTP 400 simulado) não lança, sem telefone
+    cadastrado não faz chamada, sem credenciais configuradas não faz
+    chamada, tipo sem redação no WhatsApp (`dismiss_chegada`) não faz
+    chamada.
+  - `tests/integration/test_canal_router.py`: `push`-only não chama
+    WhatsApp, `whatsapp`-only não chama push, `ambos` chama os dois,
+    responsável não encontrado cai no push por padrão, `dismiss_chegada`
+    sempre só push mesmo com `canal_notificacao=whatsapp`, e o teste
+    pedido explicitamente — falha de um destinatário (WhatsApp com rede
+    fora, via `TwilioWhatsAppSender` real + cliente HTTP fake que sempre
+    estoura) não impede nem o push do mesmo destinatário nem o envio a um
+    segundo destinatário independente.
+- `pytest` (111 passed) roda limpo neste ambiente; `pytest -m integration`
+  fica pendente do próximo acesso a Postgres real (docker-compose), junto
+  com o restante da suíte de integração que já estava pendente.
+
+### Pendências / TODOs explícitos
+
+- **Validar contra Postgres real**: `alembic upgrade head` (migration
+  `0010`), `pytest -m integration` (os 2 arquivos novos), seed continua
+  rodando limpo (não foi alterado — `canal_notificacao` nasce `push` por
+  `server_default`, os 12 responsáveis do seed continuam só no push).
+- **Cadastro de telefone/canal para os 12 pais reais do piloto**: não é
+  dado de seed/demo — precisa ser preenchido via
+  `PATCH /api/alunos/{aluno_id}/responsaveis/{responsavel_id}` (admin) por
+  operador real. Fora do escopo de código.
+- **`eas init`/sandbox `join`**: cada um dos 12 responsáveis que optar por
+  WhatsApp precisa mandar `join <código>` manualmente antes do primeiro
+  envio — processo manual, fora do que o backend consegue automatizar.
+- **Diagnóstico de envio**: por decisão do usuário, hoje é só log
+  estruturado (`logger.warning`/`.info` em `whatsapp_twilio.py`). Se o
+  piloto precisar de um painel/relatório de "quem recebeu o quê", vira TODO
+  novo — persistir resultado em `NotificacaoAgendada` (opção (b) descartada
+  nesta rodada).
+- **WhatsApp Business API para produção**: sandbox nunca deve ir para
+  produção (termos da Twilio) — troca de provedor real é decisão de negócio
+  futura, fora deste piloto.

@@ -13,10 +13,16 @@ Convenções:
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.aluno import CanalNotificacao
+
+# E.164: '+' seguido de 8 a 15 dígitos, primeiro não-zero (ex.: +5516999998888).
+_E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 
 # ---------------------------------------------------------------------------
 # Veículos
@@ -169,6 +175,15 @@ class ResponsavelBase(BaseModel):
     user_id: uuid.UUID
     parentesco: str | None = None
     permissoes: dict = Field(default_factory=dict)
+    telefone: str | None = None
+    canal_notificacao: CanalNotificacao = CanalNotificacao.PUSH
+
+    @field_validator("telefone")
+    @classmethod
+    def _validar_e164(cls, v: str | None) -> str | None:
+        if v is not None and not _E164_RE.match(v):
+            raise ValueError("telefone precisa estar em E.164 (ex.: +5516999998888).")
+        return v
 
 
 class ResponsavelCreate(ResponsavelBase):
@@ -178,6 +193,15 @@ class ResponsavelCreate(ResponsavelBase):
 class ResponsavelUpdate(BaseModel):
     parentesco: str | None = None
     permissoes: dict | None = None
+    telefone: str | None = None
+    canal_notificacao: CanalNotificacao | None = None
+
+    @field_validator("telefone")
+    @classmethod
+    def _validar_e164(cls, v: str | None) -> str | None:
+        if v is not None and not _E164_RE.match(v):
+            raise ValueError("telefone precisa estar em E.164 (ex.: +5516999998888).")
+        return v
 
 
 class ResponsavelOut(ResponsavelBase):

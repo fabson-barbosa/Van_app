@@ -88,7 +88,7 @@ Estas moldam código futuro. Não reinventar no B2–B5.
 
 ## 6. Migrations
 
-Alembic, numeradas sequencialmente. Estado atual: `0001`–`0008`.
+Alembic, numeradas sequencialmente. Estado atual: `0001`–`0010`.
 
 - `0003_rls_paradas_responsaveis` — fecha a lacuna de RLS
 - `0004_trip_domain` — domínio de viagem + trigger de imutabilidade
@@ -99,6 +99,10 @@ Alembic, numeradas sequencialmente. Estado atual: `0001`–`0008`.
 - `0009_device_tokens` — registro de token de push (Bloco B5, ver §9).
   Nasce direto com o guard `NULLIF` da `0006` — não precisou de migration
   de correção depois, diferente da `0004`.
+- `0010_canal_notificacao_responsavel` — `responsaveis.telefone`/
+  `canal_notificacao` (piloto WhatsApp via Twilio, ver §11). Não cria tabela
+  nova (só colunas em `responsaveis`, que já tem RLS desde `0003`), por isso
+  não precisou de policy própria.
 
 **Toda migration que cria tabela com dados de cliente deve criar a policy de RLS
 na mesma migration.** Tabela sem policy é tabela pública.
@@ -176,3 +180,40 @@ vazamento entre operadores.
   (gerado no aparelho, único no banco) resolvida junto, no mesmo bloco.
 - ⚠️ verificar: estratégia de índices em `eventos_aluno`, que é a tabela que mais
   cresce
+- **Sandbox da Twilio (WhatsApp) nunca pode ir para produção** (termos da
+  Twilio) — migrar para WhatsApp Business API aprovado é decisão de negócio
+  futura, fora do piloto atual (ver §11).
+
+## 11. WhatsApp via Twilio Sandbox — canal de notificação (piloto)
+
+Fora do domínio original do CLAUDE.md (que não cobre WhatsApp) — pedido
+avulso para reduzir a fricção de instalar app no celular de 12 pais.
+PROGRESSO.md tem o detalhe completo; aqui fica só a decisão estrutural.
+
+- **Terceiro adaptador do mesmo agendador do B3, não uma reescrita dele.**
+  `app/services/agendador.py` e `app/services/pos_evento.py` não mudaram
+  nenhuma linha — o `FCMSender` Protocol (`app/services/notificacoes.py`)
+  já era agnóstico a canal desde o B3 (`StubFCMSender`/`ExpoPushSender`).
+  `app/services/whatsapp_twilio.py::TwilioWhatsAppSender` é o terceiro
+  adaptador, e `app/services/canal_router.py::ChannelRouterSender` é um
+  adaptador COMPOSTO (mesmo Protocol) que decide, por responsável, para
+  qual(is) sub-sender despachar.
+- **Preferência de canal mora em `Responsavel`** (`push`/`whatsapp`/`ambos`,
+  default `push`), não em `User` — mesmo padrão de `permissoes.receber_notificacoes`,
+  que já é por vínculo aluno×responsável, não por conta de usuário.
+- **Único ponto de troca**: `app/api/viagens.py` e
+  `scripts/processar_notificacoes.py` importam `build_sender` de
+  `app.services.canal_router` em vez de `app.services.expo_push` — os dois
+  únicos lugares que constroem um sender de verdade.
+- **`dismiss_chegada` (sinal interno de fechar a notificação persistente,
+  B5) vai sempre só para push** — não existe notificação persistente no
+  WhatsApp para fechar (ver limitação abaixo).
+- **Diagnóstico de envio é só log estruturado** (`logger.warning`/`.info`,
+  mesmo padrão do `ExpoPushSender`) — decisão explícita do usuário para não
+  tocar `agendador.py`/`pos_evento.py` nem o schema de `NotificacaoAgendada`.
+  Se um painel de "quem recebeu o quê" for pedido no futuro, é um campo novo
+  em `NotificacaoAgendada` + 2 linhas nos dois pontos que chamam
+  `sender.enviar()` — não um redesenho.
+- **Limitação de canal aceita**: a notificação de chegada é `sticky`
+  (tempo de espera correndo) no push; no WhatsApp é sempre mensagem única,
+  sem cronômetro. Documentado como perda conhecida, não como bug.

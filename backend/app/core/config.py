@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     fcm_server_key: str | None = None
     payment_gateway_token: str | None = None
 
+    # WhatsApp via Twilio Sandbox (piloto — ver PROGRESSO.md sobre limitações)
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_whatsapp_from: str | None = None  # E.164 do número do sandbox, sem prefixo "whatsapp:"
+
     # App
     env: str = "development"
 
