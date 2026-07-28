@@ -1,29 +1,34 @@
 /**
- * Uma linha por aluno — CLAUDE.md §8: "uma ação por linha de aluno", alvo
- * de toque mínimo 56dp, estado sempre visível sem abrir nada.
+ * Uma linha por aluno — CLAUDE.md §8: estado sempre visível sem abrir nada.
  *
- * Interpretação de "uma ação por linha" (ambiguidade sinalizada antes da
- * implementação): o botão PRIMÁRIO é sempre único e muda com o estado
- * (Cheguei -> Checkin -> Checkout). "Ausente" é uma affordance SECUNDÁRIA,
- * deliberadamente menor e sem o peso visual de um segundo botão — não
- * compete com a ação primária pelo toque do motorista.
+ * Bloco B7 — a linha PERDEU os botões de ação. Antes ela carregava o botão
+ * primário (Cheguei/Checkin/Checkout) e mais um "Ausente" a 12dp dele: dois
+ * alvos competindo pelo polegar, numa van em movimento, sendo que um deles é
+ * irreversível. O §8 pede "uma ação por linha" e a linha tinha duas.
+ *
+ * Agora a ação primária vive só no card do rodapé, e o que sobra aqui é
+ * consulta + o badge, que abre as ações fora de ordem (ver `MenuAcoesAluno`).
+ *
+ * Dois modos, porque a lista precisa caber na tela: alunos já resolvidos viram
+ * uma linha compacta (antes cada um gastava ~110dp de altura útil, incluindo um
+ * `View` vazio só para preservar o alinhamento dos botões).
  */
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Botao56 } from "../../shared/components/Botao56";
 import { EstadoBadge } from "../../shared/components/EstadoBadge";
 import type { TripStudentOut } from "../../shared/api/types";
 import { TOQUE_MIN, cores, espacamento, raio, tipografia } from "../../shared/theme";
+import { ehTerminal } from "../state/paradaAtual";
+import { temAcoesForaDeOrdem } from "./MenuAcoesAluno";
 
 interface Props {
   tripStudent: TripStudentOut;
   pendente: boolean;
+  /** Destaca a linha do aluno que está no card do rodapé. */
+  atual: boolean;
   reordenando: boolean;
-  onSolicitarCheguei: () => void;
-  onCheckin: () => void;
-  onCheckout: () => void;
-  onAusente: () => void;
+  onAbrirAcoes: () => void;
   onMoverParaCima?: () => void;
   onMoverParaBaixo?: () => void;
 }
@@ -31,31 +36,41 @@ interface Props {
 export function AlunoRow({
   tripStudent,
   pendente,
+  atual,
   reordenando,
-  onSolicitarCheguei,
-  onCheckin,
-  onCheckout,
-  onAusente,
+  onAbrirAcoes,
   onMoverParaCima,
   onMoverParaBaixo,
 }: Props): React.JSX.Element {
-  const terminal = tripStudent.estado === "entregue" || tripStudent.estado === "ausente";
-  const podeMarcarAusente = tripStudent.estado === "aguardando" || tripStudent.estado === "chegou";
+  const compacto = ehTerminal(tripStudent.estado);
 
   return (
-    <View style={[estilos.linha, pendente && estilos.linhaPendente]}>
+    <View
+      style={[
+        estilos.linha,
+        compacto && estilos.linhaCompacta,
+        atual && estilos.linhaAtual,
+        pendente && estilos.linhaPendente,
+      ]}
+    >
       <View style={estilos.topo}>
         <View style={estilos.info}>
-          <Text style={estilos.nome} numberOfLines={1}>
+          <Text style={[estilos.nome, compacto && estilos.nomeCompacto]} numberOfLines={1}>
             {tripStudent.ordem}. {tripStudent.aluno_nome}
           </Text>
-          {tripStudent.parada_endereco ? (
+          {!compacto && tripStudent.parada_endereco ? (
             <Text style={estilos.endereco} numberOfLines={1}>
               {tripStudent.parada_endereco}
             </Text>
           ) : null}
         </View>
-        <EstadoBadge estado={tripStudent.estado} />
+        <EstadoBadge
+          estado={tripStudent.estado}
+          nomeAluno={tripStudent.aluno_nome}
+          // Reordenando, o badge sai de cena: mudar o estado de um aluno no meio
+          // de um rascunho de ordem misturaria duas operações.
+          onPress={!reordenando && temAcoesForaDeOrdem(tripStudent.estado) ? onAbrirAcoes : undefined}
+        />
       </View>
 
       {pendente ? <Text style={estilos.rotuloPendente}>não sincronizado — na fila</Text> : null}
@@ -64,6 +79,7 @@ export function AlunoRow({
         tripStudent.estado === "aguardando" ? (
           <View style={estilos.setas}>
             <Pressable
+              accessibilityRole="button"
               accessibilityLabel={`Mover ${tripStudent.aluno_nome} para cima`}
               onPress={onMoverParaCima}
               style={estilos.seta}
@@ -71,6 +87,7 @@ export function AlunoRow({
               <Text style={estilos.setaTexto}>▲</Text>
             </Pressable>
             <Pressable
+              accessibilityRole="button"
               accessibilityLabel={`Mover ${tripStudent.aluno_nome} para baixo`}
               onPress={onMoverParaBaixo}
               style={estilos.seta}
@@ -81,32 +98,7 @@ export function AlunoRow({
         ) : (
           <Text style={estilos.travadoReordenar}>já em andamento — não pode reordenar</Text>
         )
-      ) : (
-        <View style={estilos.acoes}>
-          {tripStudent.estado === "aguardando" && (
-            <Botao56 titulo="Cheguei" onPress={onSolicitarCheguei} estilo={estilos.botaoPrimario} />
-          )}
-          {tripStudent.estado === "chegou" && (
-            <Botao56 titulo="Checkin" onPress={onCheckin} estilo={estilos.botaoPrimario} />
-          )}
-          {tripStudent.estado === "a_bordo" && (
-            <Botao56 titulo="Checkout" onPress={onCheckout} estilo={estilos.botaoPrimario} />
-          )}
-          {terminal && <View style={estilos.botaoPrimario} />}
-
-          {podeMarcarAusente && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Marcar ${tripStudent.aluno_nome} como ausente`}
-              onPress={onAusente}
-              style={estilos.ausenteBotao}
-              hitSlop={8}
-            >
-              <Text style={estilos.ausenteTexto}>Ausente</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -120,13 +112,21 @@ const estilos = StyleSheet.create({
     padding: espacamento.md,
     marginBottom: espacamento.sm,
   },
+  linhaCompacta: {
+    paddingVertical: espacamento.sm,
+    opacity: 0.75,
+  },
+  linhaAtual: {
+    borderColor: cores.marca,
+    borderWidth: 2,
+  },
   linhaPendente: {
     borderStyle: "dashed",
     borderColor: cores.ambar,
   },
   topo: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: espacamento.sm,
   },
@@ -138,36 +138,19 @@ const estilos = StyleSheet.create({
     fontWeight: "700",
     color: cores.tinta,
   },
+  nomeCompacto: {
+    fontWeight: "600",
+  },
   endereco: {
-    fontSize: 12,
+    fontSize: tipografia.endereco,
     color: cores.esmaecido,
     marginTop: 2,
   },
   rotuloPendente: {
-    fontSize: 11,
+    fontSize: tipografia.legenda,
     color: cores.ambar,
     fontWeight: "600",
     marginTop: espacamento.xs,
-  },
-  acoes: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: espacamento.md,
-    gap: espacamento.md,
-  },
-  botaoPrimario: {
-    flex: 1,
-  },
-  ausenteBotao: {
-    minHeight: TOQUE_MIN,
-    justifyContent: "center",
-    paddingHorizontal: espacamento.sm,
-  },
-  ausenteTexto: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: cores.esmaecido,
-    textDecorationLine: "underline",
   },
   setas: {
     flexDirection: "row",
@@ -188,7 +171,7 @@ const estilos = StyleSheet.create({
   },
   travadoReordenar: {
     marginTop: espacamento.md,
-    fontSize: 12,
+    fontSize: tipografia.legenda,
     color: cores.dica,
     fontStyle: "italic",
   },

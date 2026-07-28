@@ -11,12 +11,16 @@
 import React, { useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { FlatList, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError, NetworkError } from "../../shared/api/client";
 import { endpoints } from "../../shared/api/endpoints";
 import { Botao56 } from "../../shared/components/Botao56";
+import { DialogoConfirmacao } from "../../shared/components/DialogoConfirmacao";
 import { EstadoBadge } from "../../shared/components/EstadoBadge";
+import { LinkToque } from "../../shared/components/LinkToque";
 import { PillSync } from "../../shared/components/PillSync";
+import { hapticoAcao, hapticoErro } from "../../shared/feedback/haptico";
 import { cores, espacamento, raio, tipografia } from "../../shared/theme";
 import type { RootStackParamList } from "../../navigation/RootNavigator";
 import { useViagemStore } from "../state/ViagemStore";
@@ -26,7 +30,9 @@ type Props = NativeStackScreenProps<RootStackParamList, "FinalizarViagem">;
 export function FinalizarViagemScreen({ route, navigation }: Props): React.JSX.Element {
   const { viagemId } = route.params;
   const store = useViagemStore(viagemId);
+  const insets = useSafeAreaInsets();
   const [finalizando, setFinalizando] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   const pendentes = store.todosNaoTerminais;
@@ -42,13 +48,19 @@ export function FinalizarViagemScreen({ route, navigation }: Props): React.JSX.E
         ? "Aguardando sincronizar..."
         : "Veículo vazio — finalizar";
 
+  const entregues = store.tripStudents.filter((ts) => ts.estado === "entregue").length;
+  const ausentes = store.tripStudents.filter((ts) => ts.estado === "ausente").length;
+
   async function finalizar() {
+    setConfirmando(false);
     setFinalizando(true);
     setErro(null);
     try {
       await endpoints.finalizarViagem(viagemId);
+      hapticoAcao();
       navigation.popToTop();
     } catch (e) {
+      hapticoErro();
       if (e instanceof ApiError && e.status === 409) {
         setErro("Algo mudou desde a última checagem — atualizando a lista.");
         await store.recarregar();
@@ -66,7 +78,13 @@ export function FinalizarViagemScreen({ route, navigation }: Props): React.JSX.E
 
   return (
     <View style={estilos.tela}>
-      <View style={[estilos.cabecalho, algumABordo ? estilos.cabecalhoAlerta : estilos.cabecalhoAviso]}>
+      <View
+        style={[
+          estilos.cabecalho,
+          { paddingTop: espacamento.lg + insets.top },
+          algumABordo ? estilos.cabecalhoAlerta : estilos.cabecalhoAviso,
+        ]}
+      >
         <Text style={estilos.tituloCabecalho}>{algumABordo ? "Aluno a bordo!" : "Verificação obrigatória"}</Text>
         <Text style={estilos.subtituloCabecalho}>
           {algumABordo
@@ -102,18 +120,35 @@ export function FinalizarViagemScreen({ route, navigation }: Props): React.JSX.E
         )}
       />
 
-      <View style={estilos.rodape}>
+      <View style={[estilos.rodape, { paddingBottom: espacamento.lg + insets.bottom }]}>
         <Botao56
           titulo={rotuloBotao}
           variante={bloqueado ? "secundario" : "primario"}
+          tamanho="grande"
           desabilitado={bloqueado}
           carregando={finalizando}
-          onPress={() => void finalizar()}
+          onPress={() => setConfirmando(true)}
         />
-        <Text style={estilos.voltar} onPress={() => navigation.goBack()}>
-          Voltar para a viagem
-        </Text>
+        <LinkToque
+          titulo="Voltar para a viagem"
+          cor={cores.esmaecido}
+          onPress={() => navigation.goBack()}
+        />
       </View>
+
+      {/* O diálogo entra DEPOIS do gate da varredura (§7.1), nunca no lugar
+          dele: o botão só habilita com todos os alunos em estado terminal, e a
+          autoridade final continua sendo o 409 do servidor. Aqui a confirmação
+          cobre outra coisa — finalizar encerra a viagem e não há reabertura. */}
+      <DialogoConfirmacao
+        visivel={confirmando}
+        titulo="Finalizar viagem"
+        subtitulo={`${entregues} entregue${entregues === 1 ? "" : "s"}, ${ausentes} ausente${ausentes === 1 ? "" : "s"}. Não dá para reabrir.`}
+        rotuloConfirmar="Finalizar"
+        varianteConfirmar="destrutivo"
+        onConfirmar={() => void finalizar()}
+        onCancelar={() => setConfirmando(false)}
+      />
     </View>
   );
 }
@@ -124,7 +159,8 @@ const estilos = StyleSheet.create({
     backgroundColor: cores.papel,
   },
   cabecalho: {
-    padding: espacamento.lg,
+    paddingHorizontal: espacamento.lg,
+    paddingBottom: espacamento.lg,
   },
   cabecalhoAviso: {
     backgroundColor: cores.ambarSuave,
@@ -194,11 +230,5 @@ const estilos = StyleSheet.create({
   rodape: {
     padding: espacamento.lg,
     gap: espacamento.sm,
-  },
-  voltar: {
-    textAlign: "center",
-    fontSize: 13,
-    fontWeight: "600",
-    color: cores.esmaecido,
   },
 });
