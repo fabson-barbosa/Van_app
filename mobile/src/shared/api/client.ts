@@ -34,11 +34,16 @@ interface ApiConfig {
   onUnauthorized: () => void;
 }
 
-// `10.0.2.2` é o alias padrão do emulador Android para o `localhost` da
-// máquina host — ajustável em tempo de execução via `configurarApi` (ex.:
-// apontar para um dispositivo físico na mesma rede, ou para staging).
+// Ponto ÚNICO de configuração da baseURL — nunca hardcodear em outro lugar.
+// `EXPO_PUBLIC_API_BASE_URL` (mobile/.env, lido pelo Metro/Expo em build
+// time) é a forma de trocar entre emulador/aparelho físico/staging sem
+// tocar em código. Sem a env var, cai no alias padrão do EMULADOR Android
+// (`10.0.2.2` = `localhost` da máquina host) — em aparelho físico via Expo
+// Go isso NUNCA funciona (resolveria para o próprio celular), por isso a
+// env var é obrigatória nesse caso. `configurarApi` continua disponível
+// pra override em runtime (ex.: tela de configurações, testes).
 const config: ApiConfig = {
-  baseUrl: "http://10.0.2.2:8000",
+  baseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://10.0.2.2:8000",
   getToken: async () => null,
   onUnauthorized: () => {},
 };
