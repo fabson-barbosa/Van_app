@@ -631,8 +631,9 @@ superado (CLAUDE.md §10/§11), fora do B4.
   (30 casos, +7 sobre o B2: `event_id` repassado, janela do desfazer-checkin
   medida contra `registrado_em` e não `checkin_em`, fail-safe sem
   `checkin_registrado_em`).
-- **Backend, integração (Postgres real — não executados neste ambiente, sem
-  Docker disponível; ver "Pendências" abaixo)**:
+- **Backend, integração (27 no total, Postgres real via docker-compose —
+  `pytest -m integration`, todos passando; ver "Validação contra Postgres
+  real" abaixo)**:
   - `test_lote_offline.py` — **teste obrigatório pedido pelo usuário**: um
     lote de 6 eventos (3 pares Cheguei/Checkin) com deriva de relógio real
     (+3min) e sincronizado de uma vez, 45min depois, produz os MESMOS
@@ -664,15 +665,46 @@ superado (CLAUDE.md §10/§11), fora do B4.
   (`npm install` + testes + typecheck rodaram; emulador Android não estava
   disponível, ver "Pendências").
 
+### Validação contra Postgres real — feita (docker-compose local)
+
+Com o Docker subido pelo usuário: `alembic upgrade head` (como owner —
+`vaivem_app`, do `.env`, não tem privilégio de DDL, igual ao B1) rodou limpo
+sobre um banco com dados reais de sessões anteriores (98 tenants, 87
+`eventos_aluno`), `scripts/seed_demo.py` reconheceu o tenant existente e
+criou as 2 viagens do dia, e **os 27 testes de integração passam** (`pytest
+-m integration`), incluindo os 3 obrigatórios. Dois bugs só apareceram
+rodando de verdade — nenhum dos dois estava no código de produção, os dois
+estavam nos testes novos:
+
+1. **Deadlock do próprio teste da migration.** `test_migration_0008_com_dados.py`
+   montava o grafo de suporte via ORM, comitava, e retornava `tenant.id`/
+   `trip_student.id` **depois** do commit — acessar um atributo expirado
+   (`expire_on_commit=True`, padrão do SQLAlchemy) dispara um refresh que
+   abre uma nova transação. Essa transação ficava "idle in transaction"
+   seguindo um lock em `trip_students` pelo resto do teste — e como o
+   próximo passo era `alembic downgrade` (que precisa de lock exclusivo na
+   MESMA tabela pra `ALTER TABLE ... DROP COLUMN`), o teste travava
+   esperando a si mesmo. Confirmado ao vivo: `pg_stat_activity` mostrou a
+   sessão do teste "idle in transaction" e o subprocesso do alembic "active"
+   parado no `ALTER TABLE` havia 25 minutos. Corrigido capturando os ids
+   ANTES do commit.
+2. **Bug de RLS no teste de lote offline** (não no RLS em si — o RLS fez
+   exatamente o que devia). `test_lote_offline.py` cria dois tenants (cenário
+   "ao vivo" e cenário "lote") na mesma sessão; depois de trocar o tenant
+   ativo pra ler os buckets do cenário "lote", a leitura dos buckets do
+   cenário "ao vivo" (mesma sessão, sem trocar o tenant de volta) via RLS
+   fail-closed e devolveu zero linhas — o filtro é pelo `tenant_id` da GUC
+   da sessão, não pelo `rota_id` do `WHERE`. Corrigido chamando `set_tenant`
+   de volta antes de cada leitura.
+
+Nenhum dos dois bugs afeta o backend em produção — os dois eram só os testes
+não replicando corretamente a disciplina de sessão que `app/api/deps.py::get_tenant_db`
+já implementa em runtime (listener `after_begin`, ids capturados antes de
+qualquer commit). Fica registrado porque é exatamente o tipo de coisa que só
+aparece contra Postgres real — a mesma lição do portão B1→B2.
+
 ### Pendências / TODOs explícitos
 
-- **Validação contra Postgres real**: `pytest -m integration` não rodou
-  neste ambiente (sem Docker/Postgres disponível). Rodar antes de dar o
-  bloco por fechado de verdade:
-  ```bash
-  docker compose up -d
-  cd backend && alembic upgrade head && pytest -m integration
-  ```
 - **Emulador/dispositivo Android**: o app não foi executado de verdade (sem
   SDK Android neste ambiente). `npx expo start --android` a partir de
   `mobile/`, contra o backend rodando, login

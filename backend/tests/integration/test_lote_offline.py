@@ -180,7 +180,13 @@ def test_lote_offline_produz_mesmos_leg_durations_que_ao_vivo(db_session):
     set_tenant(db_session, cenario_lote["tenant_id"])
     _rodar_sequencia(db_session, cenario_lote, offline=True)
 
+    # RLS filtra por tenant_id = GUC ATUAL da sessão, não pelo rota_id do
+    # filtro da query — como a última chamada foi set_tenant(lote), ler os
+    # buckets do cenário "ao vivo" exige voltar o tenant primeiro (senão é
+    # fail-closed: zero linhas, mesmo com o rota_id certo no WHERE).
+    set_tenant(db_session, cenario_ao_vivo["tenant_id"])
     buckets_ao_vivo = _leg_durations_por_ordem(db_session, cenario_ao_vivo["rota_id"])
+    set_tenant(db_session, cenario_lote["tenant_id"])
     buckets_lote = _leg_durations_por_ordem(db_session, cenario_lote["rota_id"])
 
     assert len(buckets_ao_vivo) == 3, "esperava 3 amostras de trajeto (ordens 1, 2, 3 — uma por Cheguei)"

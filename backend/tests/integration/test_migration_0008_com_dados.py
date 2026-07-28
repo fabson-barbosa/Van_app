@@ -100,9 +100,22 @@ def _montar_grafo_de_suporte(session):
         ordem=1, estado=TripStudentEstado.AGUARDANDO,
     )
     session.add(trip_student)
+    session.flush()
+
+    # Captura os ids ANTES do commit — depois do commit, `expire_on_commit`
+    # (padrão do SQLAlchemy) expira os atributos, e acessar `.id` disparia um
+    # refresh implícito que ABRE UMA NOVA TRANSAÇÃO nesta sessão. Essa
+    # transação ficaria "idle in transaction" segurando um AccessShareLock em
+    # `trip_students` pelo resto do teste — e como o teste faz `alembic
+    # downgrade` logo em seguida (que precisa de AccessExclusiveLock na MESMA
+    # tabela pra rodar `ALTER TABLE ... DROP COLUMN`), isso é um deadlock da
+    # sessão contra o próprio subprocesso da migração (achado rodando de
+    # verdade contra o Postgres do docker-compose — não aparecia em nenhum
+    # teste anterior porque nenhum outro combina ORM + DDL fora de processo).
+    tenant_id, trip_student_id = tenant.id, trip_student.id
     session.commit()
 
-    return tenant.id, trip_student.id
+    return tenant_id, trip_student_id
 
 
 def test_migration_0008_com_eventos_existentes_faz_backfill_e_preserva_trigger(db_session):
