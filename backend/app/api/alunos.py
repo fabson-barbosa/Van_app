@@ -42,15 +42,17 @@ _USER_INVALIDO = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="
 
 
 def _get_aluno_or_404(db: Session, aluno_id: uuid.UUID) -> Aluno:
+    # Soft-delete (achado A3): um aluno inativo se comporta como apagado para
+    # toda a API — 404, não aparece em GET/PATCH/listagens.
     aluno = db.get(Aluno, aluno_id)
-    if aluno is None:
+    if aluno is None or not aluno.ativo:
         raise _ALUNO_NAO_ENCONTRADO
     return aluno
 
 
 def _get_responsavel_or_404(db: Session, aluno: Aluno, responsavel_id: uuid.UUID) -> Responsavel:
     responsavel = db.get(Responsavel, responsavel_id)
-    if responsavel is None or responsavel.aluno_id != aluno.id:
+    if responsavel is None or responsavel.aluno_id != aluno.id or not responsavel.ativo:
         raise _RESPONSAVEL_NAO_ENCONTRADO
     return responsavel
 
@@ -63,8 +65,14 @@ def _validar_parada(db: Session, parada_id: uuid.UUID | None) -> None:
         raise _PARADA_INVALIDA
 
 
-def _validar_user(db: Session, user_id: uuid.UUID) -> None:
-    if db.get(User, user_id) is None:
+def _validar_user(db: Session, user_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Valida o `user_id` EXPLICITAMENTE contra o tenant (achado A7): `users`
+    não tem RLS (proposital, o login precisa achar o usuário antes de saber o
+    tenant — ver `app/core/db.py`), então `db.get(User, ...)` acharia usuário
+    de QUALQUER tenant. Sem esta checagem, um admin poderia vincular um
+    responsável a um `user_id` de outro operador."""
+    usuario = db.get(User, user_id)
+    if usuario is None or usuario.tenant_id != tenant_id:
         raise _USER_INVALIDO
 
 
@@ -78,7 +86,7 @@ def listar_alunos(
     db: Session = Depends(get_tenant_db),
     _user=Depends(require_role("admin")),
 ) -> list[Aluno]:
-    return list(db.scalars(select(Aluno).order_by(Aluno.nome)))
+    return list(db.scalars(select(Aluno).where(Aluno.ativo.is_(True)).order_by(Aluno.nome)))
 
 
 @router.post("", response_model=AlunoOut, status_code=status.HTTP_201_CREATED)
@@ -128,8 +136,13 @@ def remover_aluno(
     db: Session = Depends(get_tenant_db),
     _user=Depends(require_role("admin")),
 ) -> None:
+    # Soft-delete (achado A3 / §7.5): nunca hard-delete de dado pessoal antes
+    # do B6. Marca o aluno e seus responsáveis como inativos — o antigo
+    # cascade de hard-delete vira desativação em cascata na aplicação.
     aluno = _get_aluno_or_404(db, aluno_id)
-    db.delete(aluno)  # cascade remove responsáveis (ondelete="CASCADE" na FK)
+    aluno.ativo = False
+    for responsavel in db.scalars(select(Responsavel).where(Responsavel.aluno_id == aluno.id)):
+        responsavel.ativo = False
     db.commit()
 
 
@@ -145,7 +158,11 @@ def listar_responsaveis(
     _user=Depends(require_role("admin")),
 ) -> list[Responsavel]:
     aluno = _get_aluno_or_404(db, aluno_id)
-    return list(db.scalars(select(Responsavel).where(Responsavel.aluno_id == aluno.id)))
+    return list(
+        db.scalars(
+            select(Responsavel).where(Responsavel.aluno_id == aluno.id, Responsavel.ativo.is_(True))
+        )
+    )
 
 
 @router.post("/{aluno_id}/responsaveis", response_model=ResponsavelOut, status_code=status.HTTP_201_CREATED)
@@ -161,7 +178,7 @@ def criar_responsavel(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="aluno_id do payload precisa corresponder ao aluno da URL.",
         )
-    _validar_user(db, payload.user_id)
+    _validar_user(db, payload.user_id, aluno.tenant_id)
     responsavel = Responsavel(tenant_id=aluno.tenant_id, **payload.model_dump())
     db.add(responsavel)
     db.commit()
@@ -206,5 +223,5 @@ def remover_responsavel(
 ) -> None:
     aluno = _get_aluno_or_404(db, aluno_id)
     responsavel = _get_responsavel_or_404(db, aluno, responsavel_id)
-    db.delete(responsavel)
+    responsavel.ativo = False  # soft-delete (achado A3 / §7.5)
     db.commit()

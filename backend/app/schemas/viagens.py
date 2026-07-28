@@ -107,8 +107,32 @@ class EventoAlunoRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# Teto de "Estou atrasado" numa única chamada (achado A6). Sem `le`, um
+# `minutos` gigante estoura a coluna Integer (int4) de
+# `viagem.atraso_manual_segundos` (`minutos*60`), virando 500. 12h já é muito
+# além de qualquer atraso plausível de uma rota escolar.
+ESTOU_ATRASADO_MAX_MINUTOS = 12 * 60
+
+
 class EstouAtrasadoRequest(BaseModel):
-    minutos: int = Field(gt=0, description="Minutos a empurrar a cauda da rota — sempre positivo.")
+    minutos: int = Field(
+        gt=0, le=ESTOU_ATRASADO_MAX_MINUTOS,
+        description="Minutos a empurrar a cauda da rota — positivo e com teto (achado A6).",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Reatribuição de viagem (CLAUDE.md §11 — motorista_backup assume; admin realoca)
+# ---------------------------------------------------------------------------
+
+
+class ReatribuirViagemRequest(BaseModel):
+    """`motorista_id` novo condutor da viagem. `admin` pode apontar qualquer
+    motorista do tenant; `motorista_backup` só pode assumir para si mesmo
+    (validado na API). `motivo` é texto livre para a trilha de auditoria."""
+
+    motorista_id: uuid.UUID
+    motivo: str | None = Field(default=None, max_length=500)
 
 
 # ---------------------------------------------------------------------------

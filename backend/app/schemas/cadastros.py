@@ -123,6 +123,7 @@ class ParadaOut(BaseModel):
     latitude: float
     longitude: float
     duracao_estimada_segundos: int | None
+    ativo: bool
     created_at: datetime
     updated_at: datetime
 
@@ -184,6 +185,7 @@ class ResponsavelOut(ResponsavelBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    ativo: bool
     created_at: datetime
     updated_at: datetime
 

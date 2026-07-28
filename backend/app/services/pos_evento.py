@@ -249,7 +249,10 @@ def _registrar_amostra_trajeto(
 
 
 def _responsaveis_notificaveis(db: Session, aluno_id: uuid.UUID) -> list[Responsavel]:
-    responsaveis = db.scalars(select(Responsavel).where(Responsavel.aluno_id == aluno_id)).all()
+    # `ativo=True`: um responsável soft-deleted (achado A3) não recebe mais push.
+    responsaveis = db.scalars(
+        select(Responsavel).where(Responsavel.aluno_id == aluno_id, Responsavel.ativo.is_(True))
+    ).all()
     return [r for r in responsaveis if notif.deve_notificar(r.permissoes)]
 
 

@@ -47,13 +47,17 @@ def _now() -> datetime.datetime:
 
 
 def _get_aluno_autorizado(db: Session, aluno_id: uuid.UUID, user: CurrentUser) -> Aluno:
+    # Vínculo e aluno precisam estar ativos (achado A3): um responsável ou
+    # aluno soft-deleted não concede/expõe mais acesso.
     vinculo = db.scalars(
-        select(Responsavel).where(Responsavel.user_id == user.id, Responsavel.aluno_id == aluno_id)
+        select(Responsavel).where(
+            Responsavel.user_id == user.id, Responsavel.aluno_id == aluno_id, Responsavel.ativo.is_(True)
+        )
     ).first()
     if vinculo is None:
         raise _ALUNO_NAO_ENCONTRADO
     aluno = db.get(Aluno, aluno_id)
-    if aluno is None:
+    if aluno is None or not aluno.ativo:
         raise _ALUNO_NAO_ENCONTRADO
     return aluno
 
@@ -83,12 +87,16 @@ def listar_filhos(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role("responsavel")),
 ) -> list[FilhoOut]:
-    vinculos = db.scalars(select(Responsavel).where(Responsavel.user_id == user.id)).all()
+    vinculos = db.scalars(
+        select(Responsavel).where(Responsavel.user_id == user.id, Responsavel.ativo.is_(True))
+    ).all()
     aluno_ids = {v.aluno_id for v in vinculos}
     if not aluno_ids:
         return []
 
-    alunos = {a.id: a for a in db.scalars(select(Aluno).where(Aluno.id.in_(aluno_ids)))}
+    alunos = {
+        a.id: a for a in db.scalars(select(Aluno).where(Aluno.id.in_(aluno_ids), Aluno.ativo.is_(True)))
+    }
     parada_ids = {a.parada_id for a in alunos.values() if a.parada_id is not None}
     paradas = {p.id: p for p in db.scalars(select(Parada).where(Parada.id.in_(parada_ids)))} if parada_ids else {}
 

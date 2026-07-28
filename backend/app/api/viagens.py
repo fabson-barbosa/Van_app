@@ -42,10 +42,12 @@ from app.models.trip_student import TripStudent
 from app.models.user import UserRole
 from app.models.veiculo import Veiculo
 from app.models.viagem import Viagem, ViagemStatus
+from app.models.viagem_reatribuicao import ViagemReatribuicao
 from app.schemas.auth import CurrentUser
 from app.schemas.viagens import (
     EstouAtrasadoRequest,
     EventoAlunoRequest,
+    ReatribuirViagemRequest,
     ReordenarRequest,
     TripStudentOut,
     ViagemCreate,
@@ -70,6 +72,10 @@ _VEICULO_INVALIDO = HTTPException(
 _MOTORISTA_INVALIDO = HTTPException(
     status_code=status.HTTP_400_BAD_REQUEST, detail="Motorista não encontrado para este tenant."
 )
+_REATRIBUICAO_NEGADA = HTTPException(
+    status_code=status.HTTP_403_FORBIDDEN,
+    detail="Um motorista_backup só pode assumir a viagem para si mesmo (e apenas em andamento).",
+)
 
 _PAPEIS_OPERACAO = ("admin", "motorista", "motorista_backup")
 
@@ -87,8 +93,20 @@ def _mapear_erro_dominio(exc: DominioError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
 
 
-def _get_viagem_ou_404(db: Session, viagem_id: uuid.UUID) -> Viagem:
-    viagem = db.get(Viagem, viagem_id)
+def _get_viagem_ou_404(db: Session, viagem_id: uuid.UUID, *, lock: bool = False) -> Viagem:
+    """`lock=True` emite `SELECT ... FOR UPDATE` na linha da viagem (achado A2).
+
+    Serializa todas as operações mutantes da MESMA viagem: dois eventos
+    concorrentes (ou um Checkin correndo com a finalização) passam a esperar um
+    ao outro em vez de intercalar sob READ COMMITTED. É o que fecha o TOCTOU da
+    varredura final (§7.1) — a finalização lê os trip_students com a viagem já
+    travada, então nenhum Checkin consegue mover alguém para `a_bordo` entre a
+    leitura e o commit. Também mata a corrida de dois eventos distintos no mesmo
+    trip_student (o 2º acorda, relê o estado e cai no 409 de domínio)."""
+    if lock:
+        viagem = db.scalars(select(Viagem).where(Viagem.id == viagem_id).with_for_update()).first()
+    else:
+        viagem = db.get(Viagem, viagem_id)
     if viagem is None:
         raise _VIAGEM_NAO_ENCONTRADA
     return viagem
@@ -103,8 +121,8 @@ def _garantir_acesso_viagem(db: Session, viagem: Viagem, user: CurrentUser) -> N
         raise _VIAGEM_NAO_ENCONTRADA
 
 
-def _get_viagem_autorizada(db: Session, viagem_id: uuid.UUID, user: CurrentUser) -> Viagem:
-    viagem = _get_viagem_ou_404(db, viagem_id)
+def _get_viagem_autorizada(db: Session, viagem_id: uuid.UUID, user: CurrentUser, *, lock: bool = False) -> Viagem:
+    viagem = _get_viagem_ou_404(db, viagem_id, lock=lock)
     _garantir_acesso_viagem(db, viagem, user)
     return viagem
 
@@ -265,7 +283,7 @@ def iniciar_viagem(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> ViagemOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
 
     alunos_paradas = list(
         db.execute(
@@ -293,7 +311,7 @@ def finalizar_viagem(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> ViagemOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     trip_students = _listar_trip_students(db, viagem)
 
     try:
@@ -317,7 +335,7 @@ def estou_atrasado(
     reagenda os avisos de preparo pendentes — não é o mesmo que
     `atraso_acumulado_segundos` (só diagnóstico, ver `app/models/viagem.py`).
     """
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     if viagem.status != ViagemStatus.EM_ANDAMENTO:
         raise _mapear_erro_dominio(
             ViagemStatusInvalidoError(viagem.status, ViagemStatus.EM_ANDAMENTO, "estou_atrasado")
@@ -326,6 +344,56 @@ def estou_atrasado(
     todos = _listar_trip_students(db, viagem)
     pos_evento.processar_estou_atrasado(db, viagem, todos, payload.minutos, _now())
 
+    db.commit()
+    db.refresh(viagem)
+    return _viagem_out(db, viagem)
+
+
+@router.post("/{viagem_id}/reatribuir", response_model=ViagemOut)
+def reatribuir_viagem(
+    viagem_id: uuid.UUID,
+    payload: ReatribuirViagemRequest,
+    db: Session = Depends(get_tenant_db),
+    user: CurrentUser = Depends(require_role("admin", "motorista_backup")),
+) -> ViagemOut:
+    """Troca o condutor da viagem (CLAUDE.md §3/§11 — mitigação do aparelho do
+    motorista como ponto único de falha).
+
+    Duas portas, uma tabela de auditoria (`viagem_reatribuicoes`, append-only):
+    - `admin` realoca qualquer viagem do tenant para qualquer motorista do
+      tenant (planejada ou em andamento).
+    - `motorista_backup` só pode ASSUMIR PARA SI MESMO, e só uma viagem
+      `em_andamento` — é o cenário do §11 (o titular caiu, o backup assume no
+      próprio aparelho). Ele NÃO precisa de acesso prévio: a própria
+      reatribuição é o que passa a dar acesso (por isso não passamos por
+      `_garantir_acesso_viagem` aqui; a viagem já é tenant-scoped por RLS).
+
+    A viagem é travada (`lock=True`, achado A2) para não correr com um evento
+    concorrente durante a troca de dono.
+    """
+    viagem = _get_viagem_ou_404(db, viagem_id, lock=True)
+
+    novo_motorista = db.get(Motorista, payload.motorista_id)
+    if novo_motorista is None:
+        raise _MOTORISTA_INVALIDO
+
+    if user.role != UserRole.ADMIN:  # motorista_backup
+        meu_perfil = db.scalars(select(Motorista).where(Motorista.user_id == user.id)).first()
+        if meu_perfil is None or novo_motorista.id != meu_perfil.id:
+            raise _REATRIBUICAO_NEGADA
+        if viagem.status != ViagemStatus.EM_ANDAMENTO:
+            raise _REATRIBUICAO_NEGADA
+
+    anterior_id = viagem.motorista_id
+    if novo_motorista.id != anterior_id:
+        viagem.motorista_id = novo_motorista.id
+        db.add(
+            ViagemReatribuicao(
+                tenant_id=viagem.tenant_id, viagem_id=viagem.id,
+                motorista_anterior_id=anterior_id, motorista_novo_id=novo_motorista.id,
+                reatribuido_por_user_id=user.id, motivo=payload.motivo,
+            )
+        )
     db.commit()
     db.refresh(viagem)
     return _viagem_out(db, viagem)
@@ -353,7 +421,7 @@ def reordenar_trip_students(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> list[TripStudentOut]:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     nova_ordem = {item.trip_student_id: item.ordem for item in payload.itens}
 
     alvo = list(
@@ -446,7 +514,7 @@ def marcar_cheguei(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)
@@ -477,7 +545,7 @@ def marcar_checkin(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)
@@ -508,7 +576,7 @@ def marcar_checkout(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)
@@ -539,7 +607,7 @@ def marcar_ausente(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)
@@ -570,7 +638,7 @@ def desfazer_chegada(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)
@@ -601,7 +669,7 @@ def desfazer_checkin(
     db: Session = Depends(get_tenant_db),
     user: CurrentUser = Depends(require_role(*_PAPEIS_OPERACAO)),
 ) -> TripStudentOut:
-    viagem = _get_viagem_autorizada(db, viagem_id, user)
+    viagem = _get_viagem_autorizada(db, viagem_id, user, lock=True)
     alvo = _get_trip_student_ou_404(db, viagem, trip_student_id)
 
     ja_processado = _evento_ja_processado(db, payload.event_id)

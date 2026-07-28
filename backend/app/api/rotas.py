@@ -69,15 +69,16 @@ def _parada_out(parada: Parada) -> ParadaOut:
 
 
 def _get_rota_or_404(db: Session, rota_id: uuid.UUID) -> Rota:
+    # Soft-delete (achado A3): rota inativa se comporta como apagada — 404.
     rota = db.get(Rota, rota_id)
-    if rota is None:
+    if rota is None or not rota.ativa:
         raise _ROTA_NAO_ENCONTRADA
     return rota
 
 
 def _get_parada_or_404(db: Session, rota: Rota, parada_id: uuid.UUID) -> Parada:
     parada = db.get(Parada, parada_id)
-    if parada is None or parada.rota_id != rota.id:
+    if parada is None or parada.rota_id != rota.id or not parada.ativo:
         raise _PARADA_NAO_ENCONTRADA
     return parada
 
@@ -92,7 +93,7 @@ def listar_rotas(
     db: Session = Depends(get_tenant_db),
     _user=Depends(require_role("admin")),
 ) -> list[Rota]:
-    return list(db.scalars(select(Rota).order_by(Rota.nome)))
+    return list(db.scalars(select(Rota).where(Rota.ativa.is_(True)).order_by(Rota.nome)))
 
 
 @router.post("", response_model=RotaOut, status_code=status.HTTP_201_CREATED)
@@ -138,8 +139,12 @@ def remover_rota(
     db: Session = Depends(get_tenant_db),
     _user=Depends(require_role("admin")),
 ) -> None:
+    # Soft-delete (achado A3 / §7.5): desativa a rota e suas paradas em vez de
+    # hard-delete (o antigo cascade da FK).
     rota = _get_rota_or_404(db, rota_id)
-    db.delete(rota)  # cascade remove paradas (ondelete="CASCADE" na FK)
+    rota.ativa = False
+    for parada in db.scalars(select(Parada).where(Parada.rota_id == rota.id)):
+        parada.ativo = False
     db.commit()
 
 
@@ -156,7 +161,7 @@ def listar_paradas(
 ) -> list[ParadaOut]:
     rota = _get_rota_or_404(db, rota_id)
     paradas = db.scalars(
-        select(Parada).where(Parada.rota_id == rota.id).order_by(Parada.ordem_base)
+        select(Parada).where(Parada.rota_id == rota.id, Parada.ativo.is_(True)).order_by(Parada.ordem_base)
     )
     return [_parada_out(p) for p in paradas]
 
@@ -228,5 +233,5 @@ def remover_parada(
 ) -> None:
     rota = _get_rota_or_404(db, rota_id)
     parada = _get_parada_or_404(db, rota, parada_id)
-    db.delete(parada)
+    parada.ativo = False  # soft-delete (achado A3 / §7.5)
     db.commit()

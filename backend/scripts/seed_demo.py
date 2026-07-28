@@ -170,6 +170,28 @@ def seed(db: Session) -> None:
 
     credenciais_impressas = [(admin.email, "admin")]
 
+    # Motorista de backup do tenant (CLAUDE.md §3/§11) — perfil próprio para
+    # que `POST /api/viagens/{id}/reatribuir` (assumir viagem em andamento)
+    # seja exercitável no demo. Um por tenant basta.
+    backup_user = User(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        nome="Bruno Backup",
+        email="motorista.backup@demo.vaivem.com.br",
+        senha_hash=hash_password(SENHA_DEMO),
+        role=UserRole.MOTORISTA_BACKUP,
+        ativo=True,
+    )
+    db.add(backup_user)
+    db.flush()
+    db.add(
+        Motorista(
+            id=uuid.uuid4(), tenant_id=tenant.id, user_id=backup_user.id,
+            cnh_numero="00011122233", cnh_categoria="D", telefone="(11) 98888-0000", ativo=True,
+        )
+    )
+    credenciais_impressas.append((backup_user.email, "motorista_backup"))
+
     for rota_spec in ROTAS_DEMO:
         motorista_user = User(
             id=uuid.uuid4(),

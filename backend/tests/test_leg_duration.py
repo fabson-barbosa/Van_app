@@ -4,6 +4,7 @@ Sem banco — `leg_duration.py` é lógica pura (EWMA, validação de amostra,
 agregação progressiva na leitura).
 """
 from app.services.leg_duration import (
+    LEG_MAX_SEGUNDOS,
     BucketStats,
     escolher_estimativa,
     registrar_amostra,
@@ -34,6 +35,32 @@ def test_validar_amostra_aceita_exatamente_3x():
 
 def test_validar_amostra_aceita_valor_razoavel():
     assert validar_amostra(300, media_referencia=240) is True
+
+
+# ---------------------------------------------------------------------------
+# Teto absoluto anti-ratchet (achado A4) — corta amostra acima de LEG_MAX,
+# mesmo que o clamp RELATIVO (3x a média inflada) a deixasse passar.
+# ---------------------------------------------------------------------------
+
+
+def test_validar_amostra_rejeita_acima_do_teto_absoluto_mesmo_com_media_inflada():
+    # média de referência já inflada a 10 milhões: 3x deixaria passar 30M, mas
+    # o teto absoluto corta qualquer coisa acima de LEG_MAX_SEGUNDOS.
+    assert validar_amostra(LEG_MAX_SEGUNDOS + 1, media_referencia=10_000_000) is False
+
+
+def test_validar_amostra_aceita_exatamente_no_teto_absoluto():
+    # exatamente no teto e dentro do relativo (média = teto) -> aceita.
+    assert validar_amostra(LEG_MAX_SEGUNDOS, media_referencia=LEG_MAX_SEGUNDOS) is True
+
+
+def test_registrar_amostra_teto_absoluto_impede_ratchet_da_media():
+    # Cenário do ataque: a média já foi empurrada para 5000s por amostras
+    # anteriores; o clamp relativo permitiria até 15000s, mas o teto absoluto
+    # descarta a amostra e a média não sobe mais.
+    bucket = BucketStats(segundos_media=5000.0, amostras=10)
+    resultado = registrar_amostra(bucket, nova_amostra_segundos=LEG_MAX_SEGUNDOS + 1, estimativa_seed_segundos=240)
+    assert resultado is None
 
 
 # ---------------------------------------------------------------------------

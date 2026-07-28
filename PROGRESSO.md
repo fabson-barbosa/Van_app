@@ -1025,3 +1025,105 @@ depois): `expo-notifications` (~0.32.17), `expo-device` (~8.0.10),
 - Retenção/expurgo LGPD (§7.5): continua atribuída ao B6, fora desta
   rodada — nenhum dado novo deste bloco (device_tokens, notificações)
   muda essa pendência.
+
+---
+
+## Revisão de segurança (pós-B5) — correções aplicadas
+
+Revisão de segurança/correção dos blocos B1–B5 (foco: isolamento de dados,
+regras invioláveis §7, motor de tempos, superfície de auth). Os achados foram
+priorizados como A1–A7 + uma discrepância do §11; **todos foram corrigidos**
+nesta rodada (decisões do usuário: A3 por soft-delete, §11 implementando a
+reatribuição de fato).
+
+### O que foi corrigido
+
+- **A1 — segredo JWT com fallback default (ALTO).** `app/core/config.py` ganhou
+  um `model_validator` que **bloqueia o boot** se `jwt_secret` for o placeholder
+  ou tiver < 32 chars quando `env != development`. Todo o isolamento
+  multi-tenant tem raiz na integridade do token (a claim vira `app.tenant_id`
+  do RLS e o papel do RBAC) — um segredo forjável colapsava tudo. `.env.example`
+  documenta o requisito. Testes: `tests/test_revisao_seguranca.py`.
+- **A2 — varredura final/eventos sem trava (TOCTOU) (MÉDIO).**
+  `app/api/viagens.py::_get_viagem_ou_404` ganhou `lock=True` (`SELECT ... FOR
+  UPDATE` na viagem), aplicado em TODOS os endpoints mutantes (6 eventos +
+  iniciar/finalizar/reordenar/estou-atrasado/reatribuir). Serializa operações
+  concorrentes na mesma viagem — fecha o furo da §7.1 (finalizar enquanto um
+  Checkin move alguém para `a_bordo`) e a corrida de dois eventos no mesmo
+  trip_student. Endpoints de leitura seguem sem lock.
+- **A3 — hard-delete contra §7.5 (MÉDIO) → soft-delete.** Migration `0010`
+  adiciona `ativo` a `responsaveis`/`paradas` (`alunos.ativo`/`rotas.ativa` já
+  existiam). `remover_aluno`/`remover_responsavel`/`remover_rota`/
+  `remover_parada` passam a marcar `ativo=False` (cascata na aplicação:
+  remover aluno desativa seus responsáveis; remover rota desativa suas
+  paradas). Todas as leituras (admin CRUD, app Responsável, recipientes de
+  push) filtram `ativo=True`, então um registro soft-deleted se comporta como
+  apagado. `remover_token` (logout) também virou soft-delete (o `ExpoPushSender`
+  já só olha tokens ativos).
+- **A4 — EWMA envenenável (BAIXO).** `app/services/leg_duration.py` ganhou
+  `LEG_MAX_SEGUNDOS` (2h) — teto ABSOLUTO por amostra, independente da média
+  que deriva. O clamp relativo "> 3x" sozinho deixava amostras sucessivas
+  empurrarem a média sem limite (ratchet); o teto fixo corta isso. Limitação
+  residual documentada (sentido de baixa, perto de zero, ainda passa — menos
+  nocivo). Testes: `tests/test_leg_duration.py`.
+- **A5 — token de push sem prova de posse (BAIXO).** Mantido o comportamento de
+  reatribuição (é o fluxo REQUERIDO de aparelho compartilhado — a posse do
+  token opaco é a prova implícita), com o risco residual documentado em
+  `app/api/dispositivos.py`: é griefing, não exfiltração (`user_id` sempre vira
+  o do chamador). Sem atestação de dispositivo (fora do Expo Go) não há como
+  fechar no servidor.
+- **A6 — `minutos` de "Estou atrasado" sem teto (BAIXO).** `EstouAtrasadoRequest`
+  ganhou `le=ESTOU_ATRASADO_MAX_MINUTOS` (12h) — evita o overflow do `int4` de
+  `atraso_manual_segundos`. Testes: `tests/test_revisao_seguranca.py`.
+- **A7 — `_validar_user` atravessava tenants (BAIXO).** `app/api/alunos.py`
+  passa a checar `usuario.tenant_id == tenant_id` explicitamente (`users` não
+  tem RLS de propósito), fechando o vínculo de responsável a `user_id` de
+  outro operador.
+
+### §11 — reatribuição de condutor (implementada)
+
+Antes, `motorista_backup` não conseguia assumir a viagem de outro motorista
+(sem endpoint de reatribuição) — o exato ponto único de falha que §3/§11 dizem
+mitigar. Agora:
+
+- **`POST /api/viagens/{id}/reatribuir`** (`ReatribuirViagemRequest`): `admin`
+  realoca qualquer viagem do tenant para qualquer motorista do tenant;
+  `motorista_backup` só ASSUME PARA SI, e só uma viagem `em_andamento` (o
+  cenário do §11 — a própria reatribuição é o que passa a dar acesso, por isso
+  não exige acesso prévio). Viagem travada (`lock=True`) durante a troca.
+- **Auditoria** em `viagem_reatribuicoes` (migration `0010`): tabela
+  append-only por trigger de banco (mesma filosofia de `eventos_aluno`, §7.4),
+  RLS fail-closed com o guard `NULLIF`. Registra anterior/novo/quem/motivo.
+- **Seed** (`seed_demo.py`): passa a criar um usuário `motorista_backup` +
+  perfil `Motorista` por tenant (login `motorista.backup@demo.vaivem.com.br`),
+  para o fluxo ser exercitável.
+
+### O que foi confirmado correto (não mexido)
+
+IDOR do `/api/responsavel` (escopo por `Responsavel.user_id`), escopo do
+motorista (`_garantir_acesso_viagem`), nenhum acesso a tabela com `tenant_id`
+fora de `get_tenant_db`, `set_config` com escopo de transação em todos os
+pontos, append-only de `eventos_aluno`, janela de 60s do desfazer-checkin
+(servidor-vs-servidor), RLS `NULLIF` em todas as tabelas, JWT com
+`algorithms=[HS256]`.
+
+### Testes
+
+- **Unitários (sem banco), `pytest`**: `109 passed` (+10 sobre os 99 do B5) —
+  `test_leg_duration.py` (teto absoluto A4) e `test_revisao_seguranca.py`
+  (guarda do segredo A1, teto de minutos A6).
+- **Integração (Postgres real), `pytest -m integration`**:
+  `tests/integration/test_revisao_seguranca.py` — reatribuição (admin,
+  backup-para-si, backup-para-terceiro=403, backup-em-planejada=403, auditoria
+  append-only) e soft-delete de aluno. **Escritos, não executados neste
+  ambiente** (sem Postgres — mesma situação das pendências do B5).
+- **Offline**: `alembic upgrade head --sql` (base→head) gera limpo com a `0010`;
+  `python -c "import app.main"` importa; `py_compile` limpo.
+
+### Pendências desta rodada de revisão
+
+- Rodar `pytest -m integration` contra Postgres real (docker-compose) — cobre
+  A2/A3/§11, que dependem de banco.
+- Retenção/expurgo LGPD (§7.5) segue no B6: o soft-delete conforma o "não
+  hard-delete até o B6", mas a política de expurgo em si continua fora de
+  escopo.

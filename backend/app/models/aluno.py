@@ -43,6 +43,10 @@ class Responsavel(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     )
     parentesco: Mapped[str | None] = mapped_column(nullable=True)  # mãe, pai, avó...
     permissoes: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # Soft-delete (achado A3 / CLAUDE.md §7.5 — nenhum dado pode ser
+    # hard-deleted até o B6). `remover_responsavel` seta isto para False em vez
+    # de apagar a linha; as leituras filtram `ativo=True`.
+    ativo: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Responsavel user={self.user_id} aluno={self.aluno_id}>"

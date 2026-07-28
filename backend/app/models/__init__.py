@@ -17,6 +17,7 @@ from app.models.trip_student import TripStudent, TripStudentEstado
 from app.models.user import User, UserRole
 from app.models.veiculo import Veiculo
 from app.models.viagem import Viagem, ViagemStatus
+from app.models.viagem_reatribuicao import ViagemReatribuicao
 
 __all__ = [
     "Tenant",
@@ -31,6 +32,7 @@ __all__ = [
     "Motorista",
     "Viagem",
     "ViagemStatus",
+    "ViagemReatribuicao",
     "TripStudent",
     "TripStudentEstado",
     "EventoAluno",

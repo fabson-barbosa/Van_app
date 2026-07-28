@@ -43,6 +43,9 @@ class Parada(Base, UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin):
     ordem_base: Mapped[int] = mapped_column(nullable=False)
     geo = mapped_column(Geometry(geometry_type="POINT", srid=4326), nullable=False)
     duracao_estimada_segundos: Mapped[int | None] = mapped_column(nullable=True)
+    # Soft-delete (achado A3 / CLAUDE.md §7.5). `remover_parada` seta False em
+    # vez de apagar; as leituras filtram `ativo=True`.
+    ativo: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Parada {self.nome or self.id} (ordem {self.ordem_base})>"

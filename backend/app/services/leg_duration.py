@@ -33,6 +33,21 @@ EWMA_ALPHA = 0.3
 ESTIMATIVA_PADRAO_SEGUNDOS = 240  # 4min — usado quando Parada.duracao_estimada_segundos é nulo
 MIN_AMOSTRAS_GRANULARIDADE = 5  # CLAUDE.md §5 — "só quando o balde tiver >= 5 amostras"
 
+# Teto ABSOLUTO de um trajeto entre duas paradas consecutivas (achado A4). O
+# clamp relativo "> 3x a média de referência" limita só a variação POR AMOSTRA,
+# não o acumulado: como a média de referência é a própria média do bucket, cada
+# amostra aceita pode ser até 3x a média ATUAL, então amostras sucessivas
+# empurram o teto para cima em cadeia (240 -> 720 -> ... sem limite). Um cliente
+# adversarial (app do motorista adulterado forjando `device_timestamp` dentro
+# da janela de confiança da reconciliação) exploraria isso para inflar ETAs de
+# uma rota. Este teto fixo, independente da média que deriva, corta o ratchet:
+# nenhuma amostra além dele entra, não importa quanto a média já subiu. 2h é
+# absurdamente generoso para um trecho entre paradas de van urbana — legítimo
+# nunca chega perto. (Limitação residual documentada: o sentido de BAIXA —
+# amostras perto de zero — ainda passa; envenenar para "chega já" é menos
+# nocivo e um piso rígido rejeitaria trechos curtos legítimos.)
+LEG_MAX_SEGUNDOS = 2 * 60 * 60
+
 
 @dataclass(frozen=True)
 class BucketStats:
@@ -43,13 +58,18 @@ class BucketStats:
 
 
 def validar_amostra(segundos: float, media_referencia: float) -> bool:
-    """Rejeita amostra negativa/zero ou outlier (> 3x a média de referência).
+    """Rejeita amostra negativa/zero, outlier relativo (> 3x a média de
+    referência) ou acima do teto absoluto (`LEG_MAX_SEGUNDOS`, achado A4).
 
     `media_referencia` é o que a amostra seria comparada contra: a média do
     bucket exato se ele já existe, senão a semente (estimativa do motorista
-    ou o padrão de 4min) — nunca comparamos contra zero.
+    ou o padrão de 4min) — nunca comparamos contra zero. O teto absoluto é o
+    que impede o ratchet cumulativo (ver `LEG_MAX_SEGUNDOS`) — o clamp relativo
+    sozinho deixaria amostras sucessivas empurrarem a média sem limite.
     """
     if segundos <= 0:
+        return False
+    if segundos > LEG_MAX_SEGUNDOS:
         return False
     if media_referencia > 0 and segundos > 3 * media_referencia:
         return False
