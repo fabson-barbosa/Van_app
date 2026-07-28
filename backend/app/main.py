@@ -9,7 +9,7 @@ viagem e varredura final (CLAUDE.md §4/§7).
 """
 from fastapi import FastAPI
 
-from app.api import alunos, auth, rotas, tenants, veiculos, viagens
+from app.api import alunos, auth, dispositivos, responsavel, rotas, tenants, veiculos, viagens
 
 app = FastAPI(
     title="VaiVem API",
@@ -23,6 +23,8 @@ app.include_router(rotas.router)
 app.include_router(alunos.router)
 app.include_router(tenants.router)
 app.include_router(viagens.router)
+app.include_router(dispositivos.router)
+app.include_router(responsavel.router)
 
 
 @app.get("/health", tags=["infra"])

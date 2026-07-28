@@ -28,10 +28,10 @@ from sqlalchemy import event, select, text
 from app.core.db import SessionLocal
 from app.models.tenant import Tenant
 from app.services.agendador import processar_notificacoes_pendentes
-from app.services.notificacoes import StubFCMSender
+from app.services.expo_push import build_sender
 
 
-def _processar_tenant(tenant_id, agora, sender) -> int:
+def _processar_tenant(tenant_id, agora) -> int:
     db = SessionLocal()
     tenant_id_str = str(tenant_id)
 
@@ -40,7 +40,10 @@ def _processar_tenant(tenant_id, agora, sender) -> int:
 
     event.listen(db, "after_begin", _set_tenant_on_begin)
     try:
-        return processar_notificacoes_pendentes(db, agora, sender)
+        # `build_sender(db)` por tenant (não reaproveitado entre iterações):
+        # a mesma sessão que consulta `device_tokens` precisa ver o
+        # `app.tenant_id` já setado por essa transação (RLS fail-closed).
+        return processar_notificacoes_pendentes(db, agora, build_sender(db))
     finally:
         event.remove(db, "after_begin", _set_tenant_on_begin)
         db.close()
@@ -48,7 +51,6 @@ def _processar_tenant(tenant_id, agora, sender) -> int:
 
 def main() -> None:
     agora = datetime.datetime.now(datetime.timezone.utc)
-    sender = StubFCMSender()  # troque por um FCMSender real quando a integração existir
 
     db = SessionLocal()
     try:
@@ -56,7 +58,7 @@ def main() -> None:
     finally:
         db.close()
 
-    total = sum(_processar_tenant(tenant_id, agora, sender) for tenant_id in tenant_ids)
+    total = sum(_processar_tenant(tenant_id, agora) for tenant_id in tenant_ids)
     print(f"Processadas {total} notificações vencidas em {len(tenant_ids)} tenant(s).")
 
 

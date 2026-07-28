@@ -79,3 +79,64 @@ export interface EstouAtrasadoRequest {
 export interface ErroDominio {
   detail: string;
 }
+
+// ---------------------------------------------------------------------------
+// App Responsável (Bloco B5) — espelha app/schemas/responsavel.py
+// ---------------------------------------------------------------------------
+
+export interface FilhoOut {
+  aluno_id: string;
+  nome: string;
+  parada_endereco: string | null;
+}
+
+/** Mapa VIRTUAL (CLAUDE.md §2/§10): progresso por PARADA, nunca coordenada.
+ * `faixa_min_*` nunca é minuto exato (CLAUDE.md §5). */
+export interface StatusFilhoOut {
+  aluno_id: string;
+  tem_viagem_hoje: boolean;
+  viagem_status: ViagemStatus | null;
+  estado: TripStudentEstado | null;
+  paradas_totais: number | null;
+  paradas_concluidas: number | null;
+  paradas_restantes: number | null;
+  faixa_min_baixo: number | null;
+  faixa_min_alto: number | null;
+  chegou_em: string | null;
+}
+
+export type TipoEventoHistorico = "cheguei" | "checkin" | "checkout" | "ausente";
+
+export interface EventoHistoricoOut {
+  tipo: TipoEventoHistorico;
+  ocorrido_em: string;
+}
+
+// ---------------------------------------------------------------------------
+// Dispositivos / push (Bloco B5) — espelha app/schemas/dispositivos.py
+// ---------------------------------------------------------------------------
+
+export type DeviceTokenProvider = "expo" | "fcm";
+
+export interface DeviceTokenRegistrar {
+  token: string;
+  provider?: DeviceTokenProvider;
+}
+
+export interface DeviceTokenRemover {
+  token: string;
+}
+
+/** `data` de um push da cascata (CLAUDE.md §5) — sempre carrega os ids de
+ * roteamento (Bloco B5, `pos_evento._payload_com_rota`), mais o `tipo`. */
+export interface PushDataCascata {
+  tipo: "chegada" | "iminencia" | "preparo" | "dismiss_chegada";
+  viagem_id?: string;
+  trip_student_id?: string;
+  aluno_id?: string;
+  faixa_min_baixo?: number;
+  faixa_min_alto?: number;
+  /** Só em `tipo: "chegada"` — ancora o texto da notificação persistente
+   * (CLAUDE.md §5) sem round-trip extra à API. */
+  chegou_em?: string;
+}

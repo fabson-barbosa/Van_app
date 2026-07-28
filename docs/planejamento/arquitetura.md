@@ -36,7 +36,10 @@ backend/
     services/     regras de domínio (máquina de estados, motor de tempos)
   migrations/     Alembic — numeradas 0001…
   scripts/        seed_demo.py e utilitários
-mobile/           Expo, Android
+mobile/           Expo, Android — SDK 54 (ver §9). UM projeto só, servindo
+                  Motorista E Responsável (ver §9) — `src/motorista/`,
+                  `src/responsavel/`, `src/shared/` (client HTTP, auth,
+                  tema, componentes, push).
 docs/
   planejamento/   BACKLOG-futuro.md (histórico, não é requisito)
 ```
@@ -93,6 +96,9 @@ Alembic, numeradas sequencialmente. Estado atual: `0001`–`0008`.
   evento (Bloco B4, ver §8). Precisou desligar/religar o trigger de `0004`
   em volta do próprio backfill — ele bloqueia UPDATE mesmo pro owner da
   migration.
+- `0009_device_tokens` — registro de token de push (Bloco B5, ver §9).
+  Nasce direto com o guard `NULLIF` da `0006` — não precisou de migration
+  de correção depois, diferente da `0004`.
 
 **Toda migration que cria tabela com dados de cliente deve criar a policy de RLS
 na mesma migration.** Tabela sem policy é tabela pública.
@@ -112,10 +118,50 @@ Prioridade nesta rodada, nesta ordem:
 O resto é opcional. Estes quatro são onde erro vira criança esquecida na van ou
 vazamento entre operadores.
 
-## 8. Lacunas conhecidas
+## 9. Mobile — SDK e arquitetura do app único (Blocos B4/B5)
+
+- **Expo SDK 54** (não 51, a versão original do B4). Upgrade feito no meio
+  do B4, testando em aparelho físico: o Expo Go instalado vem sempre com o
+  SDK mais recente publicado na loja, e o cliente publicado só abre
+  projetos do MESMO SDK major com que foi compilado — o projeto precisa
+  acompanhar o que está na Play Store, não o contrário. Se o Expo Go da
+  loja subir de major de novo, repetir o fluxo documentado em PROGRESSO.md
+  (Bloco B4): `npm install expo@<nova>` → `npx expo install --fix` →
+  ajuste manual de `@types/react`/`jest-expo` → conferir se
+  `babel-preset-expo` ainda precisa ser dependência explícita.
+- **Um único projeto Expo para Motorista E Responsável** (Bloco B5),
+  ramificado por `role` (claim do JWT, decodificado só pra escolher a
+  stack — `shared/auth/jwt.ts`, nunca é fonte de autorização). CLAUDE.md
+  fala em "três apps" como três EXPERIÊNCIAS/produtos; na prática, sem
+  tooling de monorepo no projeto e com o pedido explícito de reaproveitar
+  `mobile/src/shared`, um app único com roteamento por papel é a
+  interpretação adotada nesta rodada. `app.json` (nome "VaiVem Motorista",
+  `package br.com.vaivem.motorista`) ficou como estava — cosmético,
+  reavaliar se um dia isso precisar virar dois apps de verdade na Play
+  Store (dois `package`, duas fichas).
+- **Push real via Expo Push Service, não FCM direto** (Bloco B5). O app
+  roda em Expo Go — token nativo de FCM não funciona nesse modo (exigiria
+  um dev client custom via EAS build). O Expo Push Service entrega no
+  Android via FCM por baixo, sem exigir projeto Firebase próprio.
+  `device_tokens.provider` (migration `0009`) guarda isso desde já —
+  trocar de provider no futuro (se o app sair do Expo Go) é um novo
+  `FCMSender` (`app/services/expo_push.py`), não uma migration. Registro
+  de token exige um `projectId` de EAS (gratuito, `eas init`) mesmo dentro
+  do Expo Go — tratado como best-effort no app: sem isso configurado, o
+  app funciona normalmente, só sem push.
+- **Notificação persistente sem foreground service**: confirmado que
+  `usesChronometer`/`showWhen` do `Notification.Builder` nativo não são
+  expostos pela API cross-platform do `expo-notifications` — exigiria
+  native module próprio (mesma parede que descarta FCM direto). Fallback:
+  `sticky: true` (nunca some sozinha) + texto reescrito a cada ~45s
+  enquanto o app está vivo. Ver PROGRESSO.md Bloco B5 para o detalhe.
+
+## 10. Lacunas conhecidas
 
 - Tomada de posse por `motorista_backup` — não implementada
 - Retenção/expurgo LGPD — B6, fora desta rodada
+- ~~Envio de push (`StubFCMSender`)~~ — **fechado no B5.** `app/services/expo_push.py::ExpoPushSender`
+  entrega de verdade via Expo Push Service (ver §9). `StubFCMSender` continua existindo só para teste.
 - ~~Reconciliação de eventos offline~~ — **fechada no B4.**
   `eventos_aluno` tem três relógios: `ocorrido_em` (instante reconciliado —
   `device_timestamp` + offset contra o servidor, `app/services/reconciliacao.py`;

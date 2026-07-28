@@ -18,7 +18,8 @@
             "minSdkVersion": 26
           }
         }
-      ]
+      ],
+      "expo-notifications"
     ]
   }
 }

@@ -6,6 +6,7 @@ ao autogerar migrations.
 """
 from app.models.aluno import Aluno, Responsavel
 from app.models.consentimento import Consentimento
+from app.models.device_token import DeviceToken, DeviceTokenProvider
 from app.models.evento_aluno import EventoAluno, EventoAlunoTipo
 from app.models.leg_duration import LegDuration
 from app.models.motorista import Motorista
@@ -38,4 +39,6 @@ __all__ = [
     "NotificacaoAgendada",
     "NotificacaoTipo",
     "NotificacaoEstado",
+    "DeviceToken",
+    "DeviceTokenProvider",
 ]

@@ -1,9 +1,13 @@
 import { api } from "./client";
 import type {
+  DeviceTokenRegistrar,
   EstouAtrasadoRequest,
   EventoAlunoRequest,
+  EventoHistoricoOut,
+  FilhoOut,
   LoginRequest,
   ReordenarRequest,
+  StatusFilhoOut,
   TokenResponse,
   TripStudentOut,
   ViagemOut,
@@ -35,6 +39,16 @@ export const endpoints = {
     api.post<TripStudentOut>(`/api/viagens/${viagemId}/trip-students/${tripStudentId}/desfazer-chegada`, payload),
   desfazerCheckin: (viagemId: string, tripStudentId: string, payload: EventoAlunoRequest) =>
     api.post<TripStudentOut>(`/api/viagens/${viagemId}/trip-students/${tripStudentId}/desfazer-checkin`, payload),
+
+  // App Responsável (Bloco B5)
+  listarFilhos: () => api.get<FilhoOut[]>("/api/responsavel/filhos"),
+  statusFilho: (alunoId: string) => api.get<StatusFilhoOut>(`/api/responsavel/filhos/${alunoId}/status`),
+  historicoFilho: (alunoId: string, data?: string) =>
+    api.get<EventoHistoricoOut[]>(`/api/responsavel/filhos/${alunoId}/historico${data ? `?data=${data}` : ""}`),
+
+  // Registro de push (Bloco B5)
+  registrarTokenPush: (payload: DeviceTokenRegistrar) => api.post<void>("/api/dispositivos/token", payload),
+  removerTokenPush: (token: string) => api.delete<void>("/api/dispositivos/token", { token }),
 };
 
 /** As 6 ações de evento do aluno que passam pela fila offline — CLAUDE.md §4. */

@@ -1,12 +1,13 @@
 /** Tela 3 — Viagem em andamento: lista de alunos com estado visível. */
 import React, { useMemo, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Alert, FlatList, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApiError, NetworkError } from "../../shared/api/client";
+import { endpoints } from "../../shared/api/endpoints";
 import { Botao56 } from "../../shared/components/Botao56";
 import { PillSync } from "../../shared/components/PillSync";
-import { cores, espacamento, tipografia } from "../../shared/theme";
+import { TOQUE_MIN, cores, espacamento, raio, tipografia } from "../../shared/theme";
 import type { RootStackParamList } from "../../navigation/RootNavigator";
 import { AlunoRow } from "../components/AlunoRow";
 import { BarraUndo } from "../components/BarraUndo";
@@ -14,6 +15,8 @@ import { DialogoCheguei } from "../components/DialogoCheguei";
 import { ModoReordenar } from "../components/ModoReordenar";
 import { useViagemStore } from "../state/ViagemStore";
 import type { TripStudentOut } from "../../shared/api/types";
+
+const OPCOES_ATRASO_MINUTOS = [5, 10, 15, 20];
 
 type Props = NativeStackScreenProps<RootStackParamList, "Viagem">;
 
@@ -33,6 +36,10 @@ export function ViagemScreen({ route, navigation }: Props): React.JSX.Element {
   const [ordemRascunho, setOrdemRascunho] = useState<TripStudentOut[]>([]);
   const [salvandoOrdem, setSalvandoOrdem] = useState(false);
   const [erroReordenar, setErroReordenar] = useState<string | null>(null);
+  const [mostrarAtraso, setMostrarAtraso] = useState(false);
+  const [enviandoAtrasoMinutos, setEnviandoAtrasoMinutos] = useState<number | null>(null);
+  const [confirmacaoAtraso, setConfirmacaoAtraso] = useState<string | null>(null);
+  const [erroAtraso, setErroAtraso] = useState<string | null>(null);
 
   const alunosAguardando = useMemo(
     () => store.tripStudents.filter((ts) => ts.estado === "aguardando"),
@@ -64,6 +71,30 @@ export function ViagemScreen({ route, navigation }: Props): React.JSX.Element {
     const alvo = dialogoCheguei;
     setDialogoCheguei(null);
     await store.marcarCheguei(alvo.id);
+  }
+
+  /** "Estou atrasado" (CLAUDE.md §5) — empurra a cauda manualmente e
+   * reagenda os avisos pendentes. Online-only (mesmo padrão de reordenar/
+   * iniciar/finalizar — ação de fronteira, rara, precisa da resposta do
+   * servidor pra fazer sentido), então não passa pela fila offline. */
+  async function marcarAtraso(minutos: number) {
+    setEnviandoAtrasoMinutos(minutos);
+    setErroAtraso(null);
+    try {
+      await endpoints.estouAtrasado(viagemId, { minutos });
+      setConfirmacaoAtraso(`Avisamos os responsáveis pendentes: +${minutos} min na rota.`);
+      setMostrarAtraso(false);
+    } catch (e) {
+      setErroAtraso(
+        e instanceof NetworkError
+          ? "Sem conexão — não foi possível avisar agora. Tente de novo."
+          : e instanceof ApiError
+            ? e.detail
+            : "Não foi possível registrar o atraso."
+      );
+    } finally {
+      setEnviandoAtrasoMinutos(null);
+    }
   }
 
   async function fazerCheckin(tripStudent: TripStudentOut) {
@@ -133,13 +164,49 @@ export function ViagemScreen({ route, navigation }: Props): React.JSX.Element {
   return (
     <View style={estilos.tela}>
       <View style={estilos.cabecalho}>
-        <Text style={estilos.nomeRota} numberOfLines={1}>
-          {store.viagem?.rota_nome ?? "Viagem"}
-        </Text>
+        <View style={estilos.linhaTitulo}>
+          <Text style={estilos.nomeRota} numberOfLines={1}>
+            {store.viagem?.rota_nome ?? "Viagem"}
+          </Text>
+          <Text style={estilos.linkAtraso} onPress={() => setMostrarAtraso((atual) => !atual)}>
+            Estou atrasado
+          </Text>
+        </View>
         <Text style={estilos.stats}>
           {embarcados} / {store.tripStudents.length} concluídos
         </Text>
       </View>
+
+      {mostrarAtraso ? (
+        <View style={estilos.painelAtraso}>
+          <Text style={estilos.painelAtrasoTitulo}>Empurrar a rota em quantos minutos?</Text>
+          <View style={estilos.chipsAtraso}>
+            {OPCOES_ATRASO_MINUTOS.map((minutos) => (
+              <Pressable
+                key={minutos}
+                accessibilityRole="button"
+                style={({ pressed }) => [estilos.chipAtraso, pressed && estilos.chipAtrasoPressionado]}
+                disabled={enviandoAtrasoMinutos != null}
+                onPress={() => void marcarAtraso(minutos)}
+              >
+                <Text style={estilos.chipAtrasoTexto}>
+                  {enviandoAtrasoMinutos === minutos ? "..." : `+${minutos} min`}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          {erroAtraso ? <Text style={estilos.erroReordenar}>{erroAtraso}</Text> : null}
+        </View>
+      ) : null}
+
+      {confirmacaoAtraso ? (
+        <View style={estilos.bannerConfirmacaoAtraso}>
+          <Text style={estilos.bannerConfirmacaoAtrasoTexto}>{confirmacaoAtraso}</Text>
+          <Text style={estilos.bannerConflitoFechar} onPress={() => setConfirmacaoAtraso(null)}>
+            Ok
+          </Text>
+        </View>
+      ) : null}
 
       <PillSync />
 
@@ -223,6 +290,71 @@ const estilos = StyleSheet.create({
     paddingHorizontal: espacamento.lg,
     paddingTop: espacamento.xl,
     paddingBottom: espacamento.sm,
+  },
+  linhaTitulo: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: espacamento.sm,
+  },
+  linkAtraso: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: cores.ambar,
+  },
+  painelAtraso: {
+    backgroundColor: cores.ambarSuave,
+    marginHorizontal: espacamento.lg,
+    marginTop: espacamento.sm,
+    borderRadius: raio.md,
+    padding: espacamento.md,
+  },
+  painelAtrasoTitulo: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: cores.ambar,
+    marginBottom: espacamento.sm,
+  },
+  chipsAtraso: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: espacamento.sm,
+  },
+  chipAtraso: {
+    minHeight: TOQUE_MIN,
+    minWidth: 76,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: raio.md,
+    backgroundColor: cores.cartao,
+    borderWidth: 1,
+    borderColor: cores.ambar,
+    paddingHorizontal: espacamento.md,
+  },
+  chipAtrasoPressionado: {
+    opacity: 0.7,
+  },
+  chipAtrasoTexto: {
+    fontSize: tipografia.corpo,
+    fontWeight: "700",
+    color: cores.ambar,
+  },
+  bannerConfirmacaoAtraso: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: cores.marcaSuave,
+    marginHorizontal: espacamento.lg,
+    marginTop: espacamento.sm,
+    borderRadius: 10,
+    paddingVertical: espacamento.sm,
+    paddingHorizontal: espacamento.md,
+  },
+  bannerConfirmacaoAtrasoTexto: {
+    flex: 1,
+    fontSize: 12.5,
+    color: cores.marca,
+    fontWeight: "600",
   },
   nomeRota: {
     fontSize: tipografia.titulo,

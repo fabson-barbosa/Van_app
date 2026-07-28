@@ -54,6 +54,7 @@ from app.schemas.viagens import (
 from app.services import pos_evento
 from app.services import trip_state_machine as tsm
 from app.services.exceptions import DominioError, ViagemStatusInvalidoError
+from app.services.expo_push import build_sender
 from app.services.reconciliacao import reconciliar
 
 router = APIRouter(prefix="/api/viagens", tags=["viagens"])
@@ -407,7 +408,15 @@ def _registrar_evento(
     """
     db.add(evento)
     try:
-        extra = {"registrar_amostra": registrar_amostra} if evento.tipo == EventoAlunoTipo.CHEGUEI else {}
+        extra: dict = {}
+        if evento.tipo == EventoAlunoTipo.CHEGUEI:
+            extra["registrar_amostra"] = registrar_amostra
+        # Bloco B5: só CHEGUEI (chegada/iminência imediatas) e CHECKIN/AUSENTE
+        # (sinal de dismiss da notificação persistente) falam com o push de
+        # verdade — os outros tipos de evento não enviam nada, sender ocioso
+        # seria só overhead de assinatura.
+        if evento.tipo in (EventoAlunoTipo.CHEGUEI, EventoAlunoTipo.CHECKIN, EventoAlunoTipo.AUSENTE):
+            extra["sender"] = build_sender(db)
         _POS_EVENTO_POR_TIPO[evento.tipo](db, viagem, trip_students_ordenados, trip_student, evento.ocorrido_em, **extra)
         db.commit()
     except IntegrityError:

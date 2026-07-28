@@ -3,42 +3,56 @@
  * protótipo antigo são do plano superado — CLAUDE.md §10/§11, fora de
  * escopo do B4).
  *
- *   não autenticado -> Login
- *   autenticado     -> RotaDoDia -> Viagem -> FinalizarViagem
+ *   não autenticado          -> Login
+ *   autenticado, motorista*  -> RotaDoDia -> Viagem -> FinalizarViagem
+ *   autenticado, responsavel -> ListaFilhos -> AcompanharFilho / HistoricoFilho
+ *
+ * Bloco B5: uma única app Expo pras duas experiências (decisão registrada em
+ * PROGRESSO.md/ARQUITETURA.md — CLAUDE.md fala em "três apps" mas o pedido
+ * explícito deste bloco foi reaproveitar `mobile/src/shared`, e não há
+ * tooling de monorepo no projeto pra justificar um segundo projeto Expo). O
+ * `role` vem da claim do JWT (`AuthContext`, decodificado só pra escolher a
+ * stack — nunca é fonte de autorização, isso é sempre o backend).
  *
  * `sessaoExpirada` (ver AuthContext) renderiza um prompt de reautenticação
  * POR CIMA da tela atual em vez de navegar pra longe — preserva o estado da
- * viagem em andamento enquanto o motorista loga de novo.
+ * viagem/tela em andamento enquanto o usuário loga de novo.
  */
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, StyleSheet, Text, View } from "react-native";
 
+import { AcompanharFilhoScreen } from "../responsavel/screens/AcompanharFilhoScreen";
+import { HistoricoFilhoScreen } from "../responsavel/screens/HistoricoFilhoScreen";
+import { ListaFilhosScreen } from "../responsavel/screens/ListaFilhosScreen";
 import { useAuth } from "../shared/auth/AuthContext";
 import { iniciarDrenagemAutomatica } from "../shared/offline/sync";
+import { LoginScreen, mensagemErroLogin } from "../shared/screens/LoginScreen";
 import { cores, espacamento } from "../shared/theme";
-import { LoginScreen, mensagemErroLogin } from "../motorista/screens/LoginScreen";
+import { FinalizarViagemScreen } from "../motorista/screens/FinalizarViagemScreen";
 import { RotaDoDiaScreen } from "../motorista/screens/RotaDoDiaScreen";
 import { ViagemScreen } from "../motorista/screens/ViagemScreen";
-import { FinalizarViagemScreen } from "../motorista/screens/FinalizarViagemScreen";
+import { inicializarNotificacoes } from "../shared/notifications";
+import { navigationRef } from "./navigationRef";
+import type { RootStackParamList } from "./types";
 
-export type RootStackParamList = {
-  Login: undefined;
-  RotaDoDia: undefined;
-  Viagem: { viagemId: string };
-  FinalizarViagem: { viagemId: string };
-};
+export type { RootStackParamList };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator(): React.JSX.Element {
-  const { token, carregando } = useAuth();
+  const { token, role, carregando } = useAuth();
 
   useEffect(() => {
     const parar = iniciarDrenagemAutomatica();
     return parar;
   }, []);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    return inicializarNotificacoes();
+  }, [token]);
 
   if (carregando) {
     return (
@@ -49,10 +63,16 @@ export function RootNavigator(): React.JSX.Element {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token == null ? (
           <Stack.Screen name="Login" component={LoginScreen} />
+        ) : role === "responsavel" ? (
+          <>
+            <Stack.Screen name="ListaFilhos" component={ListaFilhosScreen} />
+            <Stack.Screen name="AcompanharFilho" component={AcompanharFilhoScreen} />
+            <Stack.Screen name="HistoricoFilho" component={HistoricoFilhoScreen} />
+          </>
         ) : (
           <>
             <Stack.Screen name="RotaDoDia" component={RotaDoDiaScreen} />

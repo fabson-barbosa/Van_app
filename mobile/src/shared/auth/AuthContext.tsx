@@ -29,12 +29,25 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { configurarApi } from "../api/client";
 import { endpoints } from "../api/endpoints";
+import type { UserRole } from "../api/types";
+import { registrarPushToken, removerPushTokenAtual } from "../notifications";
 import { retomarAposRelogin } from "../offline/sync";
+import { decodeJwtPayload } from "./jwt";
 
 const CHAVE_TOKEN = "vaivem:token";
 
+/** `role` só decide QUAL STACK a UI mostra (RootNavigator) — nunca
+ * autorização de verdade, que continua sendo o backend em cada request. */
+function extrairRole(token: string | null): UserRole | null {
+  if (!token) return null;
+  const payload = decodeJwtPayload(token);
+  const role = payload?.role;
+  return typeof role === "string" ? (role as UserRole) : null;
+}
+
 interface AuthContextValue {
   token: string | null;
+  role: UserRole | null;
   carregando: boolean;
   sessaoExpirada: boolean;
   login: (email: string, senha: string) => Promise<void>;
@@ -113,19 +126,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       definirToken(resposta.access_token);
       setSessaoExpirada(false);
       retomarAposRelogin();
+
+      // Best-effort (Bloco B5) — sem permissão/EAS projectId configurado, o
+      // app segue funcionando normalmente, só sem push. Nunca bloqueia login.
+      void registrarPushToken();
     },
     [definirToken]
   );
 
   const logout = useCallback(async () => {
+    await removerPushTokenAtual();
     await SecureStore.deleteItemAsync(CHAVE_TOKEN);
     definirToken(null);
     setSessaoExpirada(false);
   }, [definirToken]);
 
+  const role = useMemo(() => extrairRole(token), [token]);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ token, carregando, sessaoExpirada, login, logout }),
-    [token, carregando, sessaoExpirada, login, logout]
+    () => ({ token, role, carregando, sessaoExpirada, login, logout }),
+    [token, role, carregando, sessaoExpirada, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

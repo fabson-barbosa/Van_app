@@ -1,17 +1,20 @@
-/** Tela 1 — Login. Também reaproveitada (modo `embutido`) no prompt de
- * reautenticação do RootNavigator quando a sessão expira em campo. */
+/** Tela de login — compartilhada pelos apps Motorista e Responsável (Bloco
+ * B5 promoveu isto de `motorista/screens/` para `shared/screens/`: login é
+ * genérico, o RootNavigator decide qual stack mostrar depois, a partir do
+ * `role` da claim do JWT). Também reaproveitada (modo `embutido`) no prompt
+ * de reautenticação do RootNavigator quando a sessão expira em campo. */
 import React, { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { Botao56 } from "../../shared/components/Botao56";
-import { ApiError, NetworkError } from "../../shared/api/client";
-import { useAuth } from "../../shared/auth/AuthContext";
-import { cores, espacamento, raio, tipografia } from "../../shared/theme";
+import { Botao56 } from "../components/Botao56";
+import { ApiError, NetworkError } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
+import { cores, espacamento, raio, tipografia } from "../theme";
 
 /** Só o 401 do próprio endpoint de login significa credencial errada —
  * qualquer outro erro (rede, 5xx, falha de storage já tratada dentro de
  * `login()`) tem causa diferente, e mostrar "e-mail ou senha inválidos" pra
- * esses casos manda o motorista pro caminho errado de diagnóstico (achado
+ * esses casos manda o usuário pro caminho errado de diagnóstico (achado
  * testando em aparelho físico real: o backend respondia 200 e a tela ainda
  * assim mostrava esse erro, porque o catch aqui era genérico demais). */
 export function mensagemErroLogin(erro: unknown): string {
@@ -22,9 +25,9 @@ export function mensagemErroLogin(erro: unknown): string {
 }
 
 // Sem `navigation`/`route`: esta tela nunca navega sozinha — o
-// RootNavigator troca de stack sozinho reagindo ao `token` do AuthContext
-// (ver navigation/RootNavigator.tsx). Isso também é o que permite reusar o
-// mesmo componente, sem adaptação, dentro do modal de reautenticação.
+// RootNavigator troca de stack sozinho reagindo ao `token`/`role` do
+// AuthContext. Isso também é o que permite reusar o mesmo componente, sem
+// adaptação, dentro do modal de reautenticação.
 interface Props {
   embutido?: boolean;
   email?: string;

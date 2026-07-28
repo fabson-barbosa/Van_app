@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -252,22 +253,33 @@ def _responsaveis_notificaveis(db: Session, aluno_id: uuid.UUID) -> list[Respons
     return [r for r in responsaveis if notif.deve_notificar(r.permissoes)]
 
 
+def _payload_com_rota(viagem_id: uuid.UUID, trip_student_id: uuid.UUID, aluno_id: uuid.UUID, payload: dict) -> dict:
+    """Bloco B5: todo payload de push carrega os ids de roteamento (o app
+    Responsável usa isso pra abrir a tela do filho certo ao tocar na
+    notificação — CLAUDE.md não define isso porque é detalhe de entrega, não
+    de domínio). `viagem_id`/`trip_student_id`/`aluno_id` sempre por cima do
+    payload de domínio (faixa de minutos etc.), nunca o contrário."""
+    return {**payload, "viagem_id": str(viagem_id), "trip_student_id": str(trip_student_id), "aluno_id": str(aluno_id)}
+
+
 def _enviar_imediata(
     db: Session, viagem: Viagem, trip_student: TripStudent, tipo: NotificacaoTipo, payload: dict,
     agora: datetime.datetime, sender: notif.FCMSender,
 ) -> None:
+    payload_completo = _payload_com_rota(viagem.id, trip_student.id, trip_student.aluno_id, payload)
     for responsavel in _responsaveis_notificaveis(db, trip_student.aluno_id):
         db.add(NotificacaoAgendada(
             tenant_id=viagem.tenant_id, viagem_id=viagem.id, trip_student_id=trip_student.id,
             destinatario_user_id=responsavel.user_id, tipo=tipo, estado=NotificacaoEstado.ENVIADO,
-            agendado_para=agora, enviado_em=agora, payload=payload,
+            agendado_para=agora, enviado_em=agora, payload=payload_completo,
         ))
-        sender.enviar(destinatario_user_id=responsavel.user_id, tipo=tipo.value, payload=payload)
+        sender.enviar(destinatario_user_id=responsavel.user_id, tipo=tipo.value, payload=payload_completo)
 
 
 def _agendar_ou_atualizar_preparo(
     db: Session, viagem: Viagem, alvo: TripStudent, agendado_para: datetime.datetime, payload: dict
 ) -> None:
+    payload_completo = _payload_com_rota(viagem.id, alvo.id, alvo.aluno_id, payload)
     for responsavel in _responsaveis_notificaveis(db, alvo.aluno_id):
         existente = db.scalars(
             select(NotificacaoAgendada).where(
@@ -279,13 +291,27 @@ def _agendar_ou_atualizar_preparo(
         ).first()
         if existente is not None:
             existente.agendado_para = agendado_para
-            existente.payload = payload
+            existente.payload = payload_completo
         else:
             db.add(NotificacaoAgendada(
                 tenant_id=viagem.tenant_id, viagem_id=viagem.id, trip_student_id=alvo.id,
                 destinatario_user_id=responsavel.user_id, tipo=NotificacaoTipo.PREPARO,
-                estado=NotificacaoEstado.AGENDADO, agendado_para=agendado_para, payload=payload,
+                estado=NotificacaoEstado.AGENDADO, agendado_para=agendado_para, payload=payload_completo,
             ))
+
+
+def _enviar_dismiss_chegada(db: Session, trip_student: TripStudent, sender: notif.FCMSender) -> None:
+    """Bloco B5: sinal silencioso (data-only, nunca aparece na bandeja — ver
+    `app/services/expo_push.py`) pra o app Responsável derrubar a notificação
+    persistente de 'chegamos, aguardando' assim que o aluno sai do estado
+    `chegou` (CLAUDE.md §5 — a notificação de chegada é a única com timer
+    correndo, então é a única que precisa ser fechada ativamente; as outras
+    duas são imediatas e não ficam pendentes)."""
+    for responsavel in _responsaveis_notificaveis(db, trip_student.aluno_id):
+        sender.enviar(
+            destinatario_user_id=responsavel.user_id, tipo="dismiss_chegada",
+            payload={"trip_student_id": str(trip_student.id)},
+        )
 
 
 def _cancelar_preparo_pendente(db: Session, trip_student_id: uuid.UUID, motivo: str) -> None:
@@ -336,7 +362,9 @@ def _recalcular_e_reagendar(
             agora=agora, eta_alvo=eta_alvo, eta_parada_anterior=eta_parada_anterior
         )
         antecedencia_real = (eta_alvo - pendente.agendado_para).total_seconds()
-        pendente.payload = notif.montar_payload_preparo(antecedencia_real)
+        pendente.payload = _payload_com_rota(
+            viagem.id, alvo.id, alvo.aluno_id, notif.montar_payload_preparo(antecedencia_real)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +395,12 @@ def processar_cheguei(
     )
 
     # Imediatas — CLAUDE.md §5/§6, sem delay cancelável.
-    _enviar_imediata(db, viagem, atual, NotificacaoTipo.CHEGADA, {}, agora, sender)
+    # `chegou_em` no payload (Bloco B5): a notificação persistente do app
+    # Responsável (§5 — "tempo de espera correndo") precisa desse instante
+    # pra ancorar o texto sem round-trip extra à API.
+    _enviar_imediata(
+        db, viagem, atual, NotificacaoTipo.CHEGADA, {"chegou_em": atual.chegou_em.isoformat()}, agora, sender
+    )
     proximo = _n_esimo_nao_terminal(trip_students_ordenados, atual.ordem, 1)
     if proximo is not None:
         _enviar_imediata(db, viagem, proximo, NotificacaoTipo.IMINENCIA, {}, agora, sender)
@@ -377,8 +410,14 @@ def processar_cheguei(
 
 def processar_checkin(
     db: Session, viagem: Viagem, trip_students_ordenados: Sequence[TripStudent], atual: TripStudent,
-    agora: datetime.datetime,
+    agora: datetime.datetime, sender: notif.FCMSender | None = None,
 ) -> None:
+    """Bloco B5: dispara `dismiss_chegada` incondicionalmente — Checkin só
+    acontece a partir de `chegou` (garantia da máquina de estados), então a
+    notificação persistente de chegada sempre existiu pra este aluno."""
+    sender = sender or notif.StubFCMSender()
+    _enviar_dismiss_chegada(db, atual, sender)
+
     alvo = _n_esimo_nao_terminal(trip_students_ordenados, atual.ordem, 2)
     if alvo is not None:
         previsao_por_ordem = _previsao_todos_os_trechos(db, viagem, trip_students_ordenados, agora)
@@ -407,8 +446,16 @@ def processar_checkout(
 
 def processar_ausente(
     db: Session, viagem: Viagem, trip_students_ordenados: Sequence[TripStudent], atual: TripStudent,
-    agora: datetime.datetime,
+    agora: datetime.datetime, sender: notif.FCMSender | None = None,
 ) -> None:
+    """Bloco B5: `dismiss_chegada` só se o aluno passou por `chegou` antes de
+    virar ausente (`chegou_em` não é limpo pela transição — ver
+    `trip_state_machine.registrar_ausente`). Vindo direto de `aguardando`,
+    nunca existiu notificação persistente pra fechar."""
+    if atual.chegou_em is not None:
+        sender = sender or notif.StubFCMSender()
+        _enviar_dismiss_chegada(db, atual, sender)
+
     _cancelar_preparo_pendente(db, atual.id, notif.MOTIVO_AUSENTE)
     _recalcular_e_reagendar(db, viagem, trip_students_ordenados, agora)
 
@@ -451,3 +498,59 @@ def processar_estou_atrasado(
 ) -> None:
     viagem.atraso_manual_segundos += minutos * 60
     _recalcular_e_reagendar(db, viagem, trip_students_ordenados, agora)
+
+
+# ---------------------------------------------------------------------------
+# Progresso por parada — leitura sob demanda para o app Responsável (Bloco B5)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProgressoAluno:
+    """Mapa VIRTUAL (CLAUDE.md §2/§10): progresso por PARADA, nunca
+    coordenada. `faixa_min_*` só é preenchida enquanto o aluno está
+    `aguardando` — depois de `chegou` o dado relevante é `chegou_em` (pro
+    timer da notificação persistente), e estados terminais/`a_bordo` não têm
+    ETA de embarque que faça sentido mostrar."""
+
+    estado: TripStudentEstado
+    paradas_totais: int
+    paradas_concluidas: int
+    paradas_restantes: int
+    faixa_min_baixo: int | None
+    faixa_min_alto: int | None
+    chegou_em: datetime.datetime | None
+
+
+def calcular_progresso_aluno(
+    db: Session, viagem: Viagem, trip_students_ordenados: Sequence[TripStudent], alvo: TripStudent,
+    agora: datetime.datetime,
+) -> ProgressoAluno:
+    """Reusa o mesmo motor de ETA do B3 (`_anchor_atual`/`etas_por_ordem`) que
+    já alimenta a cascata de notificações — mesma matemática, só que
+    consultada sob demanda (pull) em vez de disparar push (push)."""
+    ordens_totais = sorted({ts.ordem for ts in trip_students_ordenados})
+    ancora_base = viagem.iniciada_em or agora
+    anchor_timestamp, ordem_anchor = _anchor_atual(trip_students_ordenados, ancora_base)
+
+    paradas_concluidas = sum(1 for o in ordens_totais if o <= ordem_anchor)
+    paradas_restantes = sum(1 for o in ordens_totais if ordem_anchor < o <= alvo.ordem)
+
+    faixa_min_baixo: int | None = None
+    faixa_min_alto: int | None = None
+    if alvo.estado == TripStudentEstado.AGUARDANDO and viagem.iniciada_em is not None:
+        previsao_por_ordem = _previsao_todos_os_trechos(db, viagem, trip_students_ordenados, agora)
+        ordens_a_percorrer = sorted({ts.ordem for ts in trip_students_ordenados if ts.ordem > ordem_anchor})
+        etas_ordem = proj.etas_por_ordem(
+            anchor_timestamp=anchor_timestamp, ordem_anchor=ordem_anchor, ordens_a_percorrer=ordens_a_percorrer,
+            previsao_por_ordem=previsao_por_ordem, atraso_manual_segundos=viagem.atraso_manual_segundos,
+        )
+        eta_alvo = etas_ordem.get(alvo.ordem)
+        if eta_alvo is not None:
+            faixa_min_baixo, faixa_min_alto = notif.faixa_minutos((eta_alvo - agora).total_seconds())
+
+    return ProgressoAluno(
+        estado=alvo.estado, paradas_totais=len(ordens_totais), paradas_concluidas=paradas_concluidas,
+        paradas_restantes=paradas_restantes, faixa_min_baixo=faixa_min_baixo, faixa_min_alto=faixa_min_alto,
+        chegou_em=alvo.chegou_em if alvo.estado == TripStudentEstado.CHEGOU else None,
+    )

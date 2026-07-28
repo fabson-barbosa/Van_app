@@ -811,3 +811,217 @@ em aparelho Android físico via Expo Go depois dos 4 fixes acima.
 - Parser de logradouro/número de `Parada.endereco`: descartado de propósito
   (decisão do usuário) — vira colunas reais quando o cadastro do Gestor
   existir.
+
+---
+
+## Bloco B5 — App Responsável, push real, "Estou atrasado" — **concluído (código); validação de banco e emulador PENDENTE**
+
+Último bloco desta rodada (backend + Motorista + Responsável).
+
+### Estrutura apresentada e aprovada antes de codar
+
+Mostrado ao usuário antes de qualquer linha de código: telas, endpoints
+novos, e o desenho do registro de token FCM. Duas decisões vieram como
+resposta a perguntas explícitas feitas antes de codar:
+
+1. **Push: Expo Push Service, não FCM direto.** O app roda em Expo Go (SDK
+   exato instalado, sem dev client — mesma restrição do B4). Token nativo de
+   FCM não funciona dentro do Expo Go; FCM direto (HTTP v1 + service
+   account) exigiria migrar pra um dev client custom (EAS build), fora do
+   escopo deste bloco. `DeviceToken.provider` (`expo`/`fcm`) existe desde já
+   no schema — trocar de provider no futuro é um novo `FCMSender`, não uma
+   migration.
+2. **Notificação persistente sem foreground service.** Confirmado ANTES de
+   codar (pesquisa na doc oficial do `expo-notifications`) que
+   `usesChronometer`/`showWhen`/`when` do `Notification.Builder` nativo NÃO
+   são expostos pela API cross-platform da lib — exigiria native module
+   próprio, a mesma parede que descartou FCM direto. Fallback adotado (já
+   aprovado como obrigatório pelo usuário antes dessa descoberta):
+   `sticky: true` (ongoing — nunca some sozinha, é o requisito essencial) +
+   texto com o horário fixo da chegada, reescrito a cada ~45s enquanto o
+   app está vivo (bônus sem custo de infra — mostra minutos decorridos por
+   cima do horário fixo; não é um cronômetro nativo por segundo). A tela de
+   acompanhamento mostra o cronômetro exato em tempo real via JS puro.
+
+Outra decisão registrada no desenho aprovado, não uma pergunta explícita:
+**um único projeto Expo** pras duas experiências (Motorista e Responsável),
+ramificado por `role` (claim do JWT, decodificado só pra UI — nunca
+autorização de verdade). CLAUDE.md fala em "três apps", mas o pedido
+explícito deste bloco foi "reaproveite `mobile/src/shared` em vez de
+duplicar", e não há tooling de monorepo no projeto que justificasse um
+segundo projeto Expo. Registrado em ARQUITETURA.md.
+
+### Ambiguidade resolvida durante a implementação (não levada de volta)
+
+`FCMSender.enviar()` (protocolo do B3) não carregava `viagem_id`/
+`trip_student_id`/`aluno_id` — só `destinatario_user_id`/`tipo`/`payload`.
+Sem isso o app Responsável não tem como saber pra qual filho abrir a tela ao
+tocar numa notificação. Resolvido enriquecendo o `payload` (já é
+ESTRUTURADO, JSONB) em vez de mudar a assinatura do protocolo —
+`pos_evento._payload_com_rota` garante que todo payload (imediato ou
+agendado, inclusive reagendamentos de `preparo`) carrega os 3 ids por cima
+do payload de domínio. `chegada` também ganhou `chegou_em` no payload — sem
+isso o app precisaria de um round-trip extra só pra saber o horário da
+notificação persistente.
+
+### O que foi feito — Backend
+
+- **Migration `0009_device_tokens`**: tabela `device_tokens` (`tenant_id`,
+  `user_id`, `token` único global, `provider` enum, `ativo`,
+  `desativado_em`) + RLS fail-closed já nascendo com o guard `NULLIF`
+  (0006/0007) — não precisa de migration de correção depois.
+- **`app/api/dispositivos.py`** (`POST`/`DELETE /api/dispositivos/token`,
+  qualquer role autenticado): upsert por `token` (aparelho compartilhado
+  trocando de usuário reatribui a mesma linha). Conflito com um `token` de
+  OUTRO tenant (RLS o torna invisível pra esta sessão) vira 409 — nunca
+  contorna o filtro de tenant pra "resolver" a escrita.
+- **`app/services/expo_push.py`** (`ExpoPushSender`, novo `FCMSender` real):
+  consulta `DeviceToken` ativos do destinatário, monta mensagem (título/
+  corpo genéricos só pro fallback de bandeja do SO — o `data` estruturado
+  continua sendo a fonte de verdade, o app re-hidrata o texto de verdade a
+  partir dele), envia em lote pro Expo Push Service. `dismiss_chegada` é
+  `data-only` de propósito (nunca aparece na bandeja). **Nunca lança**:
+  falha de rede ao falar com o Expo não pode derrubar a transação do evento
+  de domínio que a originou (roda ANTES do commit) — mesmo contrato de
+  "nunca falha" que `StubFCMSender` já tinha. `DeviceNotRegistered` marca o
+  token `ativo=false` (nunca DELETE — token morto acumulado sem essa
+  marcação é a causa clássica de push que "some"); outros erros (rate
+  limit etc.) não desativam nada. Substitui `StubFCMSender` nos dois pontos
+  reais de envio: `api/viagens.py::_registrar_evento` (chegada/iminência
+  imediatas + sinal de dismiss) e `scripts/processar_notificacoes.py`
+  (preparo agendado).
+- **`app/services/pos_evento.py`**:
+  - `_payload_com_rota` + `_enviar_dismiss_chegada` (novos helpers).
+  - `processar_checkin`/`processar_ausente` ganharam `sender` opcional e
+    disparam `dismiss_chegada` — `processar_checkin` sempre (Checkin só
+    acontece a partir de `chegou`, garantia da máquina de estados);
+    `processar_ausente` só se `atual.chegou_em is not None` (veio de
+    `chegou`, não de `aguardando` direto — `chegou_em` não é limpo pela
+    transição de ausente, ver `trip_state_machine.py`).
+  - **`calcular_progresso_aluno`** (novo, público): mapa VIRTUAL pro app
+    Responsável — progresso por PARADA (nunca coordenada, CLAUDE.md §2/§10),
+    reusando o mesmo motor de ETA do B3 (`_anchor_atual`/`etas_por_ordem`)
+    sob demanda em vez de via push. `faixa_min_*` só é calculada com o aluno
+    em `aguardando` — depois de `chegou` o dado relevante é `chegou_em`, e
+    `a_bordo`/terminal não têm ETA de embarque que faça sentido mostrar.
+- **`app/api/responsavel.py`** (`/api/responsavel`, role `responsavel`,
+  escopado por `Responsavel.user_id == current_user.id` em TODO endpoint —
+  nunca por `aluno_id` cru da URL): `GET /filhos`, `GET
+  /filhos/{aluno_id}/status`, `GET /filhos/{aluno_id}/historico?data=`.
+  Minimização de dados (mesma postura do B4): sem `dados_medicos`, sem
+  coordenada, sem lista completa da rota — só a posição relativa do PRÓPRIO
+  filho. Histórico filtra pra fora `desfazer_chegada`/`desfazer_checkin`
+  (mesmo espírito do CLAUDE.md §4: correção interna, não fato relevante pro
+  responsável).
+
+### Testes — Backend
+
+- **Unitários, sem banco (99 no total, +6 sobre o B4)**:
+  `tests/test_progresso_aluno.py` — contagem de paradas concluídas/
+  restantes, os 4 ramos que NÃO tocam banco (`chegou`/`entregue`/`ausente`/
+  `aguardando` sem viagem iniciada), múltiplos alunos na mesma parada
+  contam uma parada só.
+- **Integração, Postgres real (`pytest -m integration`, escritos mas NÃO
+  executados neste ambiente — sem Docker disponível, mesma situação do
+  gate B1→B2; rodar antes de considerar o bloco fechado de verdade)**:
+  - `tests/integration/test_payload_e_dismiss.py`: payload de
+    chegada/iminência/preparo carrega os 3 ids de roteamento (na criação E
+    no reagendamento por "estou atrasado" — regressão explícita pro bug de
+    `_recalcular_e_reagendar` sobrescrever o payload sem eles); Checkin
+    dispara `dismiss_chegada`; Ausente dispara só quando veio de `chegou`.
+  - `tests/integration/test_expo_push.py`: sem token ativo não faz
+    chamada HTTP; token ativo recebe mensagem com `data`+título fallback;
+    token inativo não recebe nada; `dismiss_chegada` é silencioso (sem
+    title/body); `DeviceNotRegistered` desativa o token, outro erro não;
+    múltiplos tokens do mesmo usuário recebem todos. Cliente HTTP é um fake
+    injetado (`ExpoPushSender(db, cliente=...)`) — nunca sai da rede em
+    teste.
+  - `tests/integration/test_responsavel_endpoints.py` — **o ponto crítico
+    do bloco**: um responsável NUNCA enxerga o filho de outro, mesmo
+    sabendo o `aluno_id` (IDOR), tanto em `status_filho` quanto em
+    `historico_filho` (404, não 403 — mesmo padrão do motorista em
+    `api/viagens.py`, não confirma existência pra quem pergunta);
+    `listar_filhos` não vaza aluno alheio; histórico mostra os eventos
+    reais mas não os de "desfazer".
+  - `pytest` (99 passed) roda limpo neste ambiente; `pytest -m integration`
+    fica pendente do próximo acesso a Postgres real (docker-compose).
+
+### O que foi feito — App (`mobile/`)
+
+Continua Expo SDK 54 (nenhuma mudança de SDK neste bloco). Dependências
+novas (`npx expo install`, todas SDK 54-compatíveis, `expo-doctor` 18/18
+depois): `expo-notifications` (~0.32.17), `expo-device` (~8.0.10),
+`expo-constants` (~18.0.13).
+
+- **Decisão estrutural**: um único app Expo, `RootNavigator` ramifica pela
+  claim `role` do JWT (`shared/auth/jwt.ts::decodeJwtPayload` — decodificação
+  própria, sem `atob`/`Buffer`, por cautela de runtime Hermes/Expo Go, mesmo
+  espírito dos bugs achados em aparelho físico no B4). `LoginScreen`
+  promovido de `motorista/screens/` pra `shared/screens/` (é genérico, sempre
+  foi). `app.json` mantém nome/`package` "Motorista" — cosmético, TODO se um
+  dia isso virar dois apps de verdade na Play Store.
+- **`shared/notifications/`**: `canal.ts` (3 canais Android — `chegada`
+  MAX, `iminencia` HIGH, `preparo` DEFAULT, importância proporcional à
+  urgência real de cada tipo), `token.ts` (registro best-effort: sem
+  `Device.isDevice`, sem permissão concedida, ou sem EAS `projectId`
+  configurado — `eas init`, gratuito, mas é conta do usuário, não algo que
+  desse pra automatizar aqui — o app segue funcionando normalmente, só sem
+  push; a tela de acompanhamento continua atualizando por polling/pull),
+  `persistente.ts` (a notificação sticky de chegada, ver decisão 2 acima),
+  `index.ts` (handler de foreground, listeners de recebimento/toque,
+  roteamento pro filho certo via `navigationRef` — necessário porque o
+  toque pode acontecer com nenhuma tela montada ainda). `AuthContext`
+  chama `registrarPushToken()` depois de login bem-sucedido e
+  `removerPushTokenAtual()` (best-effort, nunca trava o logout) antes de
+  limpar a sessão.
+- **Telas do Responsável** (`responsavel/screens/`): `ListaFilhosScreen`
+  (nome + badge de estado do dia por filho — reusa `EstadoBadge` do B4),
+  `AcompanharFilhoScreen` (mapa virtual: `BarraProgresso` — bolinhas por
+  parada, preenchidas = percorridas, marcada = a do próprio filho; banner
+  de chegada com cronômetro client-side quando `chegou`; faixa de minutos
+  quando `aguardando`; nunca minuto exato), `HistoricoFilhoScreen` (lista
+  simples do dia). Onboarding sem nome (toque numa notificação): a tela
+  resolve o nome sozinha via `listarFilhos()`.
+- **"Estou atrasado"** (`motorista/screens/ViagemScreen.tsx`): link no
+  cabeçalho abre um painel com 4 atalhos (+5/+10/+15/+20 min, 56dp cada —
+  CLAUDE.md §8), online-only (mesmo padrão de reordenar/iniciar/finalizar),
+  banner de confirmação depois do envio.
+
+### Testes — App
+
+- **Jest (24 no total, +5 sobre o B4)**:
+  `shared/auth/__tests__/jwt.test.ts` — decodifica payload bem formado,
+  preserva UTF-8 (acentos), `null` pra token malformado/vazio/payload não-JSON.
+  `npx tsc --noEmit` limpo, `npx expo-doctor` 18/18.
+- **Emulador/aparelho físico**: **não testado nesta rodada** (sem Docker
+  pro backend neste ambiente, então sem servidor real pra apontar o app).
+  Fica como TODO explícito — mesmo perfil de pendência que o B4 teve até a
+  sessão de teste físico dedicada.
+
+### Pendências / TODOs explícitos
+
+- **Validar contra Postgres real**: `alembic upgrade head` (migration
+  `0009`), `pytest -m integration` (payload/dismiss, expo_push,
+  responsavel — os 3 arquivos novos), seed continua rodando limpo.
+- **Testar em aparelho físico via Expo Go**: login como responsável (seed
+  do B1 já cria responsáveis — `permissoes.receber_notificacoes` default
+  permissivo), registro de push (precisa de `eas init` — projeto EAS
+  gratuito, feito pelo usuário), notificação de chegada persistente e seu
+  dismiss, toque roteando pra tela certa, "Estou atrasado" no Motorista.
+- **`eas init`**: sem `projectId` configurado, `registrarPushToken()`
+  desiste silenciosamente (best-effort, log de aviso) — precisa ser feito
+  uma vez pelo usuário pra push funcionar de verdade, mesmo dentro do Expo
+  Go.
+- **Receipts do Expo Push Service**: `ExpoPushSender` lê só a resposta
+  imediata do `send` (erros de validação síncronos, incluindo
+  `DeviceNotRegistered` quando ele vem nessa resposta). Não implementa o
+  passo 2 (consultar `/getReceipts` horas depois) — deixa passar alguns
+  casos de token morto que só aparecem no receipt assíncrono. Aceito como
+  simplificação: o impacto é o mesmo de um token nunca desativado (só
+  continua tentando até night eventualmente vir um erro síncrono), não um
+  bug de dado.
+- **App do Gestor** e qualquer coisa de billing/painel web: fora de escopo,
+  como sempre (CLAUDE.md §10).
+- Retenção/expurgo LGPD (§7.5): continua atribuída ao B6, fora desta
+  rodada — nenhum dado novo deste bloco (device_tokens, notificações)
+  muda essa pendência.
