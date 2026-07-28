@@ -565,9 +565,15 @@ tempos normalmente.
 
 ### O que foi feito — App Motorista (`mobile/`)
 
-Expo SDK 51, TypeScript estrito, Android only (`minSdkVersion 26` via
-`expo-build-properties`). Sem bottom nav — stack única (Login → RotaDoDia →
-Viagem → FinalizarViagem); Alunos/Frota/Perfil/Emergência/Broadcast do
+Expo SDK 54 (react 19.1.0, react-native 0.81.5 — upgrade a partir do SDK 51
+original, feito ao testar em aparelho físico: o Expo Go instalado só aceita
+o SDK exato com que foi publicado, então o projeto precisa acompanhar o que
+está na Play Store, não o contrário; `npx expo install --fix` + `expo-doctor`
+para alinhar todo o resto, `babel-preset-expo` precisou virar dependência
+explícita — SDK 54 não traz mais transitivamente), TypeScript estrito,
+Android only (`minSdkVersion 26` via `expo-build-properties`). Sem bottom
+nav — stack única (Login → RotaDoDia → Viagem → FinalizarViagem);
+Alunos/Frota/Perfil/Emergência/Broadcast do
 protótipo antigo (`docs/prototipos/01-app-motorista.html`) são do plano
 superado (CLAUDE.md §10/§11), fora do B4.
 
@@ -703,13 +709,55 @@ já implementa em runtime (listener `after_begin`, ids capturados antes de
 qualquer commit). Fica registrado porque é exatamente o tipo de coisa que só
 aparece contra Postgres real — a mesma lição do portão B1→B2.
 
+### Teste em aparelho físico via Expo Go — setup
+
+Sessão separada, já com Docker/migrations/seed prontos. Passos que não
+existem sozinhos no código (documentar para não repetir a investigação):
+
+- **baseURL não pode ser `localhost`/`10.0.2.2` num aparelho físico** — isso
+  resolveria para o próprio celular. `shared/api/client.ts` lê
+  `EXPO_PUBLIC_API_BASE_URL` (`mobile/.env`, gitignored — `.env.example`
+  documenta) como ponto único de configuração.
+- **Cuidado com adaptadores virtuais ao pegar o IP da máquina**: em máquina
+  com WSL2, `Get-NetIPAddress`/`ipconfig` lista o adaptador `vEthernet (WSL
+  ...)` (ex.: `192.168.48.1`) junto com o adaptador físico real — só o
+  físico (o que está na mesma rede do roteador/Wi-Fi do celular) funciona.
+  Confirmar com `Get-NetAdapter` (Status `Up` + é o que tem IP da faixa do
+  roteador).
+- **Backend precisa de `--host 0.0.0.0`**: `uvicorn app.main:app --host
+  0.0.0.0 --port 8000` — sem isso só aceita conexões da própria máquina.
+- **Firewall do Windows**: se o perfil de rede do adaptador estiver como
+  "Público" (`Get-NetConnectionProfile`), há bloqueio de entrada por padrão
+  e pode existir regra explícita bloqueando Python nesse perfil
+  (`Get-NetFirewallRule`). Liberar a porta é ação de sistema — não é
+  automatizado, o comando (rodar como admin) é
+  `New-NetFirewallRule -DisplayName "VaiVem API dev (8000)" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Any`.
+- **Expo Go trava no SDK exato instalado** — desde que o modelo "multi-SDK"
+  do Expo Go foi descontinuado, o cliente publicado na loja só abre projetos
+  do MESMO SDK major com que foi compilado. O projeto tinha nascido no SDK
+  51 (decisão original do B4); o Expo Go da loja estava no SDK 54 — upgrade
+  necessário, não opcional. Fluxo que funcionou:
+  `npm install expo@54.0.36` → `npx expo install --fix` (resolve o grosso:
+  react 19.1.0, react-native 0.81.5, e as libs `expo-*`/RN community) →
+  ajuste manual de dev deps que o `--fix` não cobre (`@types/react`
+  `~19.1.10`, `jest-expo` `~54.0.0`) → `babel-preset-expo` precisou virar
+  dependência EXPLÍCITA (`~54.0.12`) — no SDK 54 não vem mais transitivo via
+  `expo`, e sem ele todo o Jest quebra com "Cannot find module
+  'babel-preset-expo'". `npx expo-doctor` (18/18) e `npx tsc --noEmit`
+  (limpo) validam o upgrade; os 19 testes Jest continuam passando sem
+  alteração de código de app, só de dependências.
+- Módulos nativos confirmados "Included in Expo Go" na doc oficial (sem
+  precisar de development build): `@react-native-async-storage/async-storage`,
+  `expo-secure-store`, `@react-native-community/netinfo`,
+  `react-native-screens`, `react-native-safe-area-context`.
+  `expo-build-properties` é plugin de config só — inerte sob Expo Go.
+
 ### Pendências / TODOs explícitos
 
-- **Emulador/dispositivo Android**: o app não foi executado de verdade (sem
-  SDK Android neste ambiente). `npx expo start --android` a partir de
-  `mobile/`, contra o backend rodando, login
-  `motorista.centro@demo.vaivem.com.br` / `demo12345` (seed cria a viagem de
-  hoje automaticamente).
+- **Teste manual em aparelho físico**: setup pronto (backend em `0.0.0.0:8000`,
+  Metro em `exp://<IP-da-máquina>:8081`), execução real ainda não confirmada
+  pelo usuário. Login `motorista.centro@demo.vaivem.com.br` / `demo12345`
+  (seed cria a viagem de hoje automaticamente).
 - **"Estou atrasado"**: endpoint já existe (B3) mas não ganhou botão na UI
   do B4 — não estava nas 4 telas pedidas explicitamente; fica como TODO.
 - **App Responsável (B5)**: nada implementado, conforme pedido.
