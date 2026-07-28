@@ -34,12 +34,10 @@ jobs:
       - name: Smoke test (import do app)
         run: python -c "from app.main import app; print('app importado com sucesso')"
       - name: Testes unitários
-        # `-m "not integration"` é OBRIGATÓRIO aqui, não cosmético: o
-        # pytest.ini declara o marker mas não tem `addopts` para desmarcar os
-        # testes de integração por padrão. Um `pytest` cru coletaria
-        # tests/integration/, dispararia a fixture autouse
-        # `_alembic_upgrade_head` e tentaria migrar um banco que não existe
-        # neste job.
+        # `-m "not integration"` já é o default do pytest.ini (`addopts`).
+        # Repetir aqui é explícito de propósito: este job não tem banco, e
+        # deixar a exclusão só implícita num arquivo de config faz o job
+        # depender de algo invisível de quem lê o workflow.
         run: python -m pytest -m "not integration" -q
 
   # Exercita o que só existe no banco: policies de RLS e o trigger de
@@ -126,13 +124,35 @@ jobs:
             exit 1
           fi
 
-      - name: Suíte completa (unitários + integração, como vaivem_app)
+      - name: Testes unitários (como vaivem_app)
         env:
-          # O que a aplicação usa, e o que os testes de RLS precisam ser para
-          # que o isolamento seja de fato exercitado.
+          DATABASE_URL: ${{ env.APP_DATABASE_URL }}
+          OWNER_DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+        run: python -m pytest -q
+
+      # `-m integration` na linha de comando é OBRIGATÓRIO: o pytest.ini traz
+      # `addopts = -m "not integration"`, então um `pytest` cru DESMARCA os 43
+      # testes de integração e termina verde tendo rodado só os 99 unitários.
+      # Como o `-m` da linha de comando vence o do addopts (o último ganha),
+      # este é o único jeito de realmente exercitar RLS e o trigger.
+      #
+      # A guarda do grep existe porque "0 testes selecionados" também seria
+      # verde. Entre um job que prova isolamento e um que não roda nada, a
+      # única diferença visível seria uma linha de contagem no log — e ninguém
+      # lê log de job que passou.
+      - name: Testes de integração — RLS e trigger, como vaivem_app
+        env:
+          # O papel SEM BYPASSRLS. É isto que faz os asserts de isolamento
+          # significarem alguma coisa.
           DATABASE_URL: ${{ env.APP_DATABASE_URL }}
           # Lido por tests/integration/conftest.py::_alembic_upgrade_head, que
           # roda `alembic upgrade head` sempre como owner (idempotente — as
           # migrations já subiram no passo acima).
           OWNER_DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
-        run: python -m pytest -q
+        run: |
+          set -o pipefail
+          python -m pytest -m integration -q | tee resultado-integracao.txt
+          if ! grep -qE '[0-9]+ passed' resultado-integracao.txt; then
+            echo "::error::Nenhum teste de integração foi executado — o job ficaria verde sem provar isolamento nenhum."
+            exit 1
+          fi
