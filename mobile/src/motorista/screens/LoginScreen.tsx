@@ -4,8 +4,22 @@ import React, { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { Botao56 } from "../../shared/components/Botao56";
+import { ApiError, NetworkError } from "../../shared/api/client";
 import { useAuth } from "../../shared/auth/AuthContext";
 import { cores, espacamento, raio, tipografia } from "../../shared/theme";
+
+/** Só o 401 do próprio endpoint de login significa credencial errada —
+ * qualquer outro erro (rede, 5xx, falha de storage já tratada dentro de
+ * `login()`) tem causa diferente, e mostrar "e-mail ou senha inválidos" pra
+ * esses casos manda o motorista pro caminho errado de diagnóstico (achado
+ * testando em aparelho físico real: o backend respondia 200 e a tela ainda
+ * assim mostrava esse erro, porque o catch aqui era genérico demais). */
+export function mensagemErroLogin(erro: unknown): string {
+  if (erro instanceof ApiError && erro.status === 401) return "E-mail ou senha inválidos.";
+  if (erro instanceof NetworkError) return "Sem conexão com o servidor. Confira o endereço da API e a rede.";
+  if (erro instanceof ApiError) return erro.detail;
+  return "Não foi possível entrar. Tente de novo.";
+}
 
 // Sem `navigation`/`route`: esta tela nunca navega sozinha — o
 // RootNavigator troca de stack sozinho reagindo ao `token` do AuthContext
@@ -39,8 +53,8 @@ function TelaCompleta(): React.JSX.Element {
     setErro(null);
     try {
       await login(email, senha);
-    } catch {
-      setErro("E-mail ou senha inválidos.");
+    } catch (e) {
+      setErro(mensagemErroLogin(e));
     } finally {
       setEnviando(false);
     }

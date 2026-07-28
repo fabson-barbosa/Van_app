@@ -18,7 +18,7 @@ import { ActivityIndicator, Modal, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "../shared/auth/AuthContext";
 import { iniciarDrenagemAutomatica } from "../shared/offline/sync";
 import { cores, espacamento } from "../shared/theme";
-import { LoginScreen } from "../motorista/screens/LoginScreen";
+import { LoginScreen, mensagemErroLogin } from "../motorista/screens/LoginScreen";
 import { RotaDoDiaScreen } from "../motorista/screens/RotaDoDiaScreen";
 import { ViagemScreen } from "../motorista/screens/ViagemScreen";
 import { FinalizarViagemScreen } from "../motorista/screens/FinalizarViagemScreen";
@@ -82,8 +82,8 @@ function PromptReautenticacao(): React.JSX.Element | null {
       await login(email, senha);
       setEmail("");
       setSenha("");
-    } catch {
-      setErro("E-mail ou senha inválidos.");
+    } catch (e) {
+      setErro(mensagemErroLogin(e));
     } finally {
       setEnviando(false);
     }

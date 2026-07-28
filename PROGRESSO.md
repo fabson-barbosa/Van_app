@@ -752,12 +752,59 @@ existem sozinhos no código (documentar para não repetir a investigação):
   `react-native-screens`, `react-native-safe-area-context`.
   `expo-build-properties` é plugin de config só — inerte sob Expo Go.
 
+### Bugs achados testando em aparelho físico real — os 3 só apareceram aí
+
+Nenhum reproduzia no bundling, no `tsc --noEmit` nem nos 19 testes Jest —
+exatamente o tipo de coisa que só aparece com timing/hardware reais, mesma
+categoria de lição do gate B1→B2 com Postgres.
+
+1. **Loading infinito no 1º abrir do app.** `AuthContext` lia o token salvo
+   do `SecureStore` sem `try/catch` — se essa leitura rejeitasse por
+   qualquer motivo (comum em 1º launch), `carregando` nunca virava `false`
+   e a tela de loading travava pra sempre, sem erro visível. Corrigido:
+   falha na leitura vira "sem sessão salva" (fallback seguro), nunca trava.
+2. **"E-mail ou senha inválidos" mesmo com o backend respondendo 200.** O
+   `catch` de `LoginScreen`/`RootNavigator` era genérico demais — qualquer
+   erro depois da autenticação (ex.: `SecureStore.setItemAsync` falhando ao
+   salvar o token, que tem falhas de escrita esporádicas documentadas em
+   alguns Android/Expo Go) virava a mesma mensagem de credencial errada.
+   Corrigido em duas frentes: `login()` não deixa falha de persistência
+   derrubar uma autenticação que já foi validada pelo servidor (`catch`
+   próprio, log de aviso, segue); as telas só mostram "credenciais
+   inválidas" quando o erro É de fato um 401 do endpoint de login
+   (`mensagemErroLogin`, novo helper exportado de `LoginScreen.tsx`).
+3. **"Sessão expirada" na cara logo após um login bem-sucedido — CRÍTICO,
+   corrida de verdade, não intermitência de rede.** Ao logar, a tela
+   autenticada (RotaDoDia) monta e busca dados reagindo à mudança do
+   `token` do contexto. O React roda o efeito do FILHO recém-montado antes
+   do efeito do ANCESTRAL (`AuthProvider`) na mesma leva de renderização —
+   então a primeira requisição podia sair ANTES do efeito que atualizava o
+   `getToken` do cliente HTTP rodar, sem `Authorization` nenhum, voltando
+   401 na hora. Corrigido trocando a fonte de verdade: `configurarApi` é
+   chamado UMA VEZ (não mais reativo a `token` via `useEffect`), e
+   `getToken` lê de um `tokenRef` atualizado SINCRONAMENTE dentro de
+   `definirToken` — antes de qualquer `setState`, então nunca existe uma
+   janela em que o cliente HTTP tem uma versão desatualizada do token.
+4. **(relacionado a #3, achado ao corrigir) Precisava recarregar manualmente
+   depois de reautenticar pelo modal.** `useFocusEffect` só reage a eventos
+   de NAVEGAÇÃO — o modal de reautenticação fica por cima da tela atual sem
+   trocar de tela, então ele nunca retriggava a busca. `RotaDoDiaScreen` e
+   `ViagemStore` (usado por `ViagemScreen`/`FinalizarViagemScreen`) ganharam
+   um `useEffect` extra que refaz a busca sempre que `token` muda de
+   verdade — cobre login inicial e qualquer reautenticação em campo.
+
+Confirmado pelo usuário: login, navegação e fluxo funcionando corretamente
+em aparelho Android físico via Expo Go depois dos 4 fixes acima.
+
 ### Pendências / TODOs explícitos
 
-- **Teste manual em aparelho físico**: setup pronto (backend em `0.0.0.0:8000`,
-  Metro em `exp://<IP-da-máquina>:8081`), execução real ainda não confirmada
-  pelo usuário. Login `motorista.centro@demo.vaivem.com.br` / `demo12345`
-  (seed cria a viagem de hoje automaticamente).
+- **Teste manual em aparelho físico**: confirmado funcionando pelo usuário
+  (login, navegação, Rota do dia) em Android físico via Expo Go, backend em
+  `0.0.0.0:8000`, Metro em `exp://<IP-da-máquina>:8081`. O roteiro completo
+  (viagem inteira, finalizar com aluno a bordo, modo avião com 6 eventos)
+  ainda não foi confirmado ponta a ponta. Login
+  `motorista.centro@demo.vaivem.com.br` / `demo12345` (seed cria a viagem de
+  hoje automaticamente).
 - **"Estou atrasado"**: endpoint já existe (B3) mas não ganhou botão na UI
   do B4 — não estava nas 4 telas pedidas explicitamente; fica como TODO.
 - **App Responsável (B5)**: nada implementado, conforme pedido.

@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, NetworkError } from "../../shared/api/client";
+import { useAuth } from "../../shared/auth/AuthContext";
 import { endpoints } from "../../shared/api/endpoints";
 import type { TripStudentOut, ViagemOut } from "../../shared/api/types";
 import * as fila from "../../shared/offline/queue";
@@ -93,9 +94,20 @@ export function useViagemStore(viagemId: string) {
     }
   }, [viagemId, aplicarSeMontado]);
 
+  const { token } = useAuth();
+
   useEffect(() => {
     void recarregar();
   }, [recarregar]);
+
+  // Mesma correção de RotaDoDiaScreen.tsx: sem isso, reautenticar pelo modal
+  // no meio de uma viagem (token expirou durante o uso) deixava a tela presa
+  // no erro da busca original, feita com o token vencido — só um "puxar para
+  // atualizar" manual resolvia.
+  useEffect(() => {
+    if (token) void recarregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   // Reconciliação com o resultado da fila (sincronizado/conflito) — CLAUDE.md §8.
   useEffect(() => {

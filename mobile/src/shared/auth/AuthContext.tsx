@@ -11,9 +11,21 @@
  * navegar pra longe e sem perder o estado da viagem em andamento. Depois de
  * logar de novo, `retomarAposRelogin()` destrava a drenagem e os eventos
  * pendentes saem sozinhos.
+ *
+ * `tokenRef` (em vez de `configurarApi` reagir a `token` via `useEffect`):
+ * achado testando em aparelho físico real — logo após um login bem-sucedido,
+ * a tela autenticada (RotaDoDiaScreen) monta e já busca dados reagindo à
+ * mudança de `token`. React roda o efeito do FILHO recém-montado antes do
+ * efeito do ANCESTRAL (`AuthProvider`) na mesma leva de renderização — então
+ * a primeira requisição podia sair ANTES do efeito que atualizaria
+ * `config.getToken` rodar, sem Authorization nenhum, voltando 401 ("sessão
+ * expirada") na hora, mesmo o login tendo funcionado. `tokenRef` é atualizado
+ * SINCRONAMENTE dentro de `definirToken`, antes de qualquer `setState` —
+ * `configurarApi` é chamado uma única vez, e `getToken` sempre lê o valor
+ * atual do ref, nunca uma closure de render desatualizada.
  */
 import * as SecureStore from "expo-secure-store";
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { configurarApi } from "../api/client";
 import { endpoints } from "../api/endpoints";
@@ -35,41 +47,81 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const [token, setToken] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [sessaoExpirada, setSessaoExpirada] = useState(false);
+  const tokenRef = useRef<string | null>(null);
 
+  const definirToken = useCallback((novo: string | null) => {
+    tokenRef.current = novo;
+    setToken(novo);
+  }, []);
+
+  // Configurado UMA VEZ — `getToken` lê `tokenRef.current` a cada chamada,
+  // nunca uma closure presa ao valor de `token` no momento em que este
+  // efeito rodou (ver docstring do módulo).
   useEffect(() => {
     configurarApi({
-      getToken: async () => token,
+      getToken: async () => tokenRef.current,
       onUnauthorized: () => setSessaoExpirada(true),
     });
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     let cancelado = false;
     (async () => {
-      const salvo = await SecureStore.getItemAsync(CHAVE_TOKEN);
+      // Sem o catch, qualquer rejeição aqui (SecureStore falhar por qualquer
+      // motivo no primeiro launch) travava `carregando=true` pra sempre —
+      // a tela de loading nunca soltava, sem erro visível nenhum. Achado
+      // testando em aparelho físico real (não reproduzia no bundling nem no
+      // typecheck). Tratar erro como "sem sessão salva" é o fallback seguro:
+      // pior caso o motorista precisa logar de novo, nunca fica travado.
+      let salvo: string | null = null;
+      try {
+        salvo = await SecureStore.getItemAsync(CHAVE_TOKEN);
+      } catch (erro) {
+        console.warn("Falha ao ler token do SecureStore — seguindo sem sessão salva.", erro);
+      }
       if (!cancelado) {
-        setToken(salvo);
+        definirToken(salvo);
         setCarregando(false);
       }
     })();
     return () => {
       cancelado = true;
     };
-  }, []);
+  }, [definirToken]);
 
-  const login = useCallback(async (email: string, senha: string) => {
-    const resposta = await endpoints.login({ email, senha });
-    await SecureStore.setItemAsync(CHAVE_TOKEN, resposta.access_token);
-    setToken(resposta.access_token);
-    setSessaoExpirada(false);
-    retomarAposRelogin();
-  }, []);
+  const login = useCallback(
+    async (email: string, senha: string) => {
+      // `endpoints.login` lança ApiError/NetworkError se a autenticação em si
+      // falhar — deixa propagar, é o único caso que deve virar "e-mail ou
+      // senha inválidos" na tela.
+      const resposta = await endpoints.login({ email, senha });
+
+      // Daqui pra baixo a autenticação JÁ teve sucesso (o servidor validou a
+      // senha). Uma falha de SecureStore aqui NÃO pode virar "credenciais
+      // inválidas" — achado testando em aparelho físico real: o app mostrava
+      // esse erro mesmo com o backend respondendo 200, porque o catch do
+      // LoginScreen era genérico demais e o SecureStore falhava silenciosamente
+      // (`expo-secure-store` tem falhas de escrita esporádicas documentadas em
+      // alguns Android/Expo Go). Se persistir falhar, a sessão ainda funciona
+      // pro resto deste uso do app — só não sobrevive a fechar/reabrir.
+      try {
+        await SecureStore.setItemAsync(CHAVE_TOKEN, resposta.access_token);
+      } catch (erro) {
+        console.warn("Falha ao salvar token no SecureStore — sessão válida só até fechar o app.", erro);
+      }
+
+      definirToken(resposta.access_token);
+      setSessaoExpirada(false);
+      retomarAposRelogin();
+    },
+    [definirToken]
+  );
 
   const logout = useCallback(async () => {
     await SecureStore.deleteItemAsync(CHAVE_TOKEN);
-    setToken(null);
+    definirToken(null);
     setSessaoExpirada(false);
-  }, []);
+  }, [definirToken]);
 
   const value = useMemo<AuthContextValue>(
     () => ({ token, carregando, sessaoExpirada, login, logout }),

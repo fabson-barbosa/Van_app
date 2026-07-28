@@ -1,5 +1,5 @@
 /** Tela 2 — Rota do dia: viagens da jornada do motorista, iniciar viagem. */
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
@@ -21,7 +21,7 @@ const ROTULO_STATUS: Record<ViagemOut["status"], string> = {
 };
 
 export function RotaDoDiaScreen({ navigation }: Props): React.JSX.Element {
-  const { logout } = useAuth();
+  const { logout, token } = useAuth();
   const [viagens, setViagens] = useState<ViagemOut[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -50,6 +50,18 @@ export function RotaDoDiaScreen({ navigation }: Props): React.JSX.Element {
       void carregar();
     }, [carregar])
   );
+
+  // `useFocusEffect` só reage a eventos de navegação — o modal de
+  // reautenticação (RootNavigator) fica POR CIMA desta tela sem tirar o
+  // foco dela, então logar de novo não retriggava esse efeito e a lista
+  // ficava presa no erro/estado vazio da primeira busca (feita com o token
+  // vencido). Achado testando em aparelho físico real: precisava de um
+  // "puxar para atualizar" manual depois de reautenticar. Este efeito extra
+  // busca de novo sempre que o token muda de verdade (login inicial e
+  // qualquer reautenticação).
+  useEffect(() => {
+    if (token) void carregar();
+  }, [token, carregar]);
 
   const abrirViagem = async (viagem: ViagemOut) => {
     if (viagem.status === "planejada") {
