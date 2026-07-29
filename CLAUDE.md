@@ -128,15 +128,50 @@ Sempre que a estimativa da cauda mudar, o texto e o horário do preparo já
 pendente são recalculados (nunca criam uma segunda notificação — reagendam a
 mesma).
 
-## 6. Diálogo de confirmação do "Cheguei"
+## 6. Diálogos de confirmação
 
-Único diálogo bloqueante do app. Conteúdo:
+### 6.1 O "Cheguei"
+
+Conteúdo:
 
 - **Nome do aluno em destaque** (o erro que importa é Cheguei na parada errada,
   não o toque acidental — um "Confirmar?" genérico vira reflexo em três dias)
 - Rua e número abaixo, peso leve, cor secundária, ~13sp
 - Dois botões: Confirmar / Cancelar. Nada mais no diálogo.
 - Push sai **imediatamente** após confirmar (sem delay cancelável)
+
+### 6.2 As ações irreversíveis (revisão do B7)
+
+> Até o B5 este era **o único** diálogo bloqueante do app. O B7 estendeu a
+> confirmação, e a decisão foi explícita: **prevenir antes, em vez de recuperar
+> depois**. `ausente` e `entregue` são terminais na máquina de estados — não
+> existe `desfazer_ausente` nem `desfazer_checkout` — e a trilha é append-only
+> por trigger de banco (§7.4). Não há "depois": um Ausente errado não tem
+> correção nem por suporte. Confirmação com delay cancelável foi **descartada**
+> em favor do diálogo.
+
+Exigem diálogo, com o mesmo molde do §6.1 e botão de confirmar **vermelho
+sólido**:
+
+| Ação | Título | Subtítulo |
+|---|---|---|
+| Marcar ausente | nome do aluno | endereço da parada |
+| Checkout | nome do aluno | "Desembarque — não tem volta" |
+| Finalizar viagem | "Finalizar viagem" | contagem de entregues/ausentes |
+
+**Checkout nunca exibe `parada_endereco`** — aquele campo é o ponto de
+*embarque* (snapshot da origem); mostrá-lo num desembarque na escola apontaria
+o motorista para o lugar errado.
+
+**Guarda de 400ms**: ao abrir, os dois botões ficam inertes por um instante.
+Sem isso o diálogo vira reflexo — o segundo toque de um toque-duplo confirmaria
+sem leitura, e um diálogo que não é lido não protege nada. O botão físico
+Voltar do Android **cancela**, nunca confirma.
+
+**Não ganham diálogo**, de propósito: o Checkin (ação mais repetida da rota, e
+já tem undo de 30s) e o "Desfazer chegada" (é a saída de emergência — encher de
+atrito a correção de um erro é o oposto do que estas regras existem para fazer;
+além disso abrir o menu do badge já é o primeiro de dois toques).
 
 ## 7. Regras invioláveis
 
@@ -158,14 +193,45 @@ mesma).
 
 Ele está dirigindo. A interface é dimensionada para pressa, não para conforto.
 
-- Alvo de toque mínimo **56dp**
-- Uma ação por linha de aluno
+- Alvo de toque mínimo **56dp**; **72dp** nos botões de diálogo
 - Estado visível sem abrir nada: aguardando / chegou / a bordo / entregue / ausente
-- "Ausente" em um toque
 - Undo de 30s no Checkin
 - Reordenar paradas permitido **antes** do Cheguei (senão o trajeto é atribuído
   ao par errado)
 - Fila offline: eventos persistem localmente e reenviam ao recuperar sinal
+- **Feedback tátil** nas ações e nos erros. Confirmação só visual obriga o
+  motorista a olhar a tela para saber se o toque pegou — exatamente o que estas
+  restrições existem para evitar
+- Contraste **WCAG AA** e piso de fonte de **13sp**: a tela é lida sob sol
+  direto, em aparelho antigo (§2)
+- Tela não apaga durante a viagem em andamento
+
+### Estrutura da tela de viagem (revisão do B7)
+
+Antes do B7 a tela era uma lista uniforme de N alunos, cada linha com botão
+primário **e** um "Ausente" a 12dp dele. Dois problemas: o motorista tinha que
+*ler e procurar* qual linha era a dele (parado em fila dupla, com a van
+ligada), e a linha tinha dois alvos competindo pelo polegar — sendo um deles
+irreversível.
+
+- **Uma ação por linha** passa a ser literal: a ação primária existe **só** no
+  card de parada atual, fixo no rodapé (zona do polegar), largura total, 72dp.
+  Ele nunca sai da tela — por isso não há auto-scroll para dar errado.
+- A lista acima é **consulta**. Alunos já resolvidos ficam em linha compacta.
+- **"Ausente" deixou de ser um toque** (ver §6.2) e saiu da linha. Ele e o
+  "Desfazer chegada" entram pelo **toque no badge de estado**, que é o canal
+  das ações *fora de ordem* — o que não segue a sequência da rota: corrigir um
+  Cheguei no aluno errado, ou marcar ausente alguém lá na frente porque o
+  responsável avisou de manhã (§4). O badge só é tocável em `aguardando` e
+  `chegou`, e leva o sufixo "▾" quando é.
+- **Parada atual é por fase, não "o primeiro não-terminal".** Quem embarcou
+  fica `a_bordo` pela rota inteira; a regra ingênua ofereceria *Checkout* do
+  aluno 1 enquanto a van ainda vai buscar o aluno 3. Enquanto houver alguém em
+  `aguardando`/`chegou` a viagem está **embarcando** e o alvo é o primeiro
+  deles; só quando não sobra ninguém para pegar é que passa a **desembarcar**.
+- O cabeçalho mostra **quantos faltam** (não "concluídos") e o atraso
+  acumulado. Ausente conta como resolvido — senão uma rota com duas faltas
+  fecha o turno parecendo inacabada.
 
 ## 9. Ordem de implementação
 
@@ -177,6 +243,7 @@ Ele está dirigindo. A interface é dimensionada para pressa, não para conforto
 | **B4** | App Motorista | Sonnet |
 | **B5** | App Responsável (push + mapa virtual) | Sonnet |
 | **B6** | Hardening LGPD: retenção, expurgo, exportação de dados | fora desta rodada |
+| **B7** | UX do Motorista: confirmação das ações irreversíveis, card de parada atual, háptico, legibilidade | Opus |
 
 ### Portão de validação antes do B2
 

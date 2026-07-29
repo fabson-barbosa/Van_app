@@ -1025,3 +1025,107 @@ depois): `expo-notifications` (~0.32.17), `expo-device` (~8.0.10),
 - Retenção/expurgo LGPD (§7.5): continua atribuída ao B6, fora desta
   rodada — nenhum dado novo deste bloco (device_tokens, notificações)
   muda essa pendência.
+
+---
+
+## Bloco B7 — UX do Motorista: confirmação, card de parada atual, conforto — **concluído (código); teste em aparelho PENDENTE**
+
+Origem: `docs/analise-ux-motorista.md`, análise UI/UX pedida pelo usuário. Os
+dois problemas graves eram **erro sem saída** e **custo de atenção durante a
+rota**.
+
+### Decisões tomadas com o usuário
+
+1. **Confirmação por diálogo, não por delay cancelável**, nas ações
+   irreversíveis: **Ausente**, **Checkout** e **Finalizar viagem**. O motivo é
+   de domínio: `ausente`/`entregue` são terminais (`trip_state_machine.py:46`),
+   não existe `desfazer_ausente`/`desfazer_checkout`, e `eventos_aluno` é
+   append-only por trigger (§7.4) — não há "depois" para recuperar.
+2. **Checkin mantém o undo de 30s e não ganha diálogo** — é a ação mais
+   repetida da rota e a única com saída depois do fato.
+3. **"Desfazer chegada" entra pelo toque no badge de estado**, não como
+   terceiro botão na linha.
+4. **Escopo completo**, incluindo a reestruturação da tela de viagem.
+
+### Correção de desenho feita durante a implementação
+
+O plano definia parada atual como "primeiro não-terminal por ordem". Está
+errado: quem embarca fica `a_bordo` pela rota inteira, então a regra apontaria
+o aluno 1 e o card ofereceria **Checkout** enquanto a van ainda ia buscar o
+aluno 3 — ação errada, com confirmação destrutiva ao lado, no trânsito. A
+seleção passou a ser **por fase** (`state/paradaAtual.ts`): enquanto houver
+alguém em `aguardando`/`chegou` a viagem embarca e o alvo é o primeiro deles;
+só depois passa a desembarcar. Coberto por teste.
+
+### O que foi feito — App (`mobile/`)
+
+Dependências novas (versões do `bundledNativeModules.json` do SDK 54, porque
+`expo install` não alcança a API do Expo neste ambiente): `expo-haptics`
+(~15.0.8), `expo-keep-awake` (~15.0.8), `@types/react-test-renderer` (dev).
+
+- **`shared/theme.ts`**: `TOQUE_GRANDE=72`; contraste corrigido para WCAG AA —
+  `dica` #8a958f→#6b7873 (2,85:1 → 4,60:1) e `ambar` #ba7517→#8a5410 (3,72:1 →
+  6,27:1; 3,25:1 → 5,46:1 sobre `ambarSuave`); `perigoForte` para fundo sólido;
+  piso de fonte 13sp e `endereco` 12→14sp.
+- **`shared/components/DialogoConfirmacao.tsx`** (novo): molde do §6
+  generalizado, com a **guarda de 400ms** (o risco é o reflexo, não o toque
+  acidental) e Voltar do Android cancelando. `DialogoCheguei` virou casca fina
+  sobre ele — preserva o contrato do §6, evita duas linguagens divergindo.
+- **`shared/components/LinkToque.tsx`** (novo): `Text` **não aceita `hitSlop`**
+  no RN, então os `<Text onPress>` de ~18dp ("Estou atrasado", "Reordenar",
+  "Ok", "Voltar", "Sair") não davam para corrigir sem trocar o elemento.
+- **`shared/components/EstadoBadge.tsx`**: prop `onPress` opcional, `hitSlop`
+  levando o alvo a 56dp, sufixo "▾" só quando tocável.
+- **`motorista/components/MenuAcoesAluno.tsx`** (novo): ações fora de ordem.
+  **Liga `ViagemStore.desfazerChegada`, que existia desde o B4 sem nenhum
+  chamador** — o §4 permitia a transição, o backend aceitava, a fila offline
+  cobria, e não havia botão.
+- **`motorista/components/CardParadaAtual.tsx`** (novo): ação primária única,
+  no rodapé, 72dp, com cronômetro de espera (`chegou_em`) — o responsável via
+  esse número desde o B5, o motorista não.
+- **`motorista/state/undoCheckin.ts`** (novo): registro de **módulo**.
+  `useViagemStore` é um hook com `useState` por montagem, então guardar o undo
+  na tela o matava ao navegar. Corrige os 3 defeitos: sobrevive à navegação,
+  aceita vários simultâneos (irmãos na mesma parada), e o prazo é instante
+  absoluto (remontar não devolve tempo).
+- **`ViagemScreen`**: `store.erro` renderizado (era preenchido e nunca exibido
+  — sem sinal ao abrir, a tela ficava em branco e muda), `ListEmptyComponent`,
+  `RefreshControl`, contador de restantes, atraso acumulado, `useKeepAwake`,
+  safe area. O `Alert.alert` do §7.2 virou banner inline que **cita o caminho**
+  ("toque no selo Chegou de Fulano") em vez de só avisar.
+- **`AlunoRow`**: perdeu os botões; dois modos (compacto para terminais).
+- Háptico em ação/sucesso/erro, best-effort.
+
+### Testes
+
+- **Jest: 57 no total (+33 sobre o B5)**, 8 suítes, todas verdes.
+  `paradaAtual.test.ts` (seleção por fase — inclui a regressão do Checkout
+  prematuro; contador com ausentes; atraso; cronômetro),
+  `undoCheckin.test.ts` (múltiplos undos independentes, expiração, não vazar
+  entre viagens, prazo que não se renova), `DialogoConfirmacao.test.tsx`
+  (guarda de 400ms, reinício a cada abertura, anatomia do §6),
+  `MenuAcoesAluno.test.tsx` (ações por estado).
+- `npx tsc --noEmit` limpo.
+- `npx expo-doctor`: **16/18**. As 2 falhas são de REDE neste ambiente (o proxy
+  não alcança a API do Expo nem o React Native Directory), não do projeto —
+  "Check Expo config schema" e "Validate packages against RN Directory" ambas
+  falham com erro de host. Reconferir num ambiente com saída livre.
+
+### Pendências / TODOs explícitos
+
+- **Testar em aparelho físico — condição para fechar o bloco de verdade.** O
+  B4 e o B5 nunca rodaram em aparelho, e este bloco é inteiro sobre contraste
+  ao sol e alcance do polegar: avaliar sem aparelho é chute. Depende das
+  pendências herdadas (Postgres real via `docker-compose`, `eas init`).
+  Roteiro completo em `/root/.claude/plans/` e no fim de `docs/analise-ux-motorista.md`.
+- **Descoberta do badge**: a ação ficou escondida por decisão do usuário. As
+  duas mitigações (sufixo "▾" e a mensagem do §7.2) são hipóteses — verificar
+  com motorista real se ele encontra "Desfazer chegada" sem ser ensinado.
+- **`desfazer_ausente`**: o diálogo previne o erro mas não cria saída. Cenário
+  real: marca ausente, dá a partida, o aluno aparece correndo. Mudança de
+  máquina de estados (§4), território do B2 — **não** feita aqui.
+- **"Estou atrasado" na fila offline**: falha justamente no cenário em que é
+  usado, mas mudaria a fronteira documentada em `queue.ts`. Não feito.
+- **Tema escuro** para a rota matinal: não feito.
+- Reordenar por arrastar (setas ▲▼ pedem dezenas de toques) e safe area nas
+  telas do Responsável: fora do escopo desta rodada.

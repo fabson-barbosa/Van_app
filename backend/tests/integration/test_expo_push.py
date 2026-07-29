@@ -104,7 +104,14 @@ def test_token_inativo_nao_recebe_mensagem(db_session):
 
 def test_dismiss_chegada_e_silencioso_sem_titulo_nem_corpo(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[abc]", ativo=True))
+    # Token PRÓPRIO, não o "[abc]" de
+    # `test_token_ativo_recebe_mensagem_com_data_e_titulo_fallback`:
+    # `uq_device_tokens_token` é global, não por tenant (um aparelho tem um
+    # token só — ver models/device_token.py), e o fixture `db_session` só faz
+    # rollback, que não desfaz o commit do teste anterior. Tenants diferentes
+    # não salvam: a colisão é no literal. Mesmo motivo pelo qual
+    # `_criar_tenant_e_user` já gera nome de tenant e e-mail com uuid.
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[dismiss]", ativo=True))
     db_session.commit()
     cliente = _ClienteFake()
 

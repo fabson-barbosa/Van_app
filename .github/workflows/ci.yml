@@ -3,10 +3,22 @@ name: CI
 on:
   push:
     branches: [ main ]
+    paths: ['backend/**', '.github/workflows/ci.yml']
   pull_request:
     branches: [ main ]
+    paths: ['backend/**', '.github/workflows/ci.yml']
+
+env:
+  # O owner é superuser (criado pela imagem oficial via POSTGRES_USER) e roda
+  # as migrations, que exigem DDL: CREATE TABLE, CREATE POLICY, CREATE EXTENSION.
+  OWNER_DATABASE_URL: postgresql+psycopg://vaivem:vaivem@localhost:5432/vaivem
+  # O papel da APLICAÇÃO, sem superuser e sem BYPASSRLS. Ver o job de
+  # integração abaixo para o porquê disso não ser um detalhe.
+  APP_DATABASE_URL: postgresql+psycopg://vaivem_app:vaivem_app@localhost:5432/vaivem
 
 jobs:
+  # Feedback rápido: sem banco, segundos. Cobre a lógica pura — máquina de
+  # estados, motor de tempos, projeção, reconciliação.
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -21,3 +33,126 @@ jobs:
         run: pip install -r requirements.txt
       - name: Smoke test (import do app)
         run: python -c "from app.main import app; print('app importado com sucesso')"
+      - name: Testes unitários
+        # `-m "not integration"` já é o default do pytest.ini (`addopts`).
+        # Repetir aqui é explícito de propósito: este job não tem banco, e
+        # deixar a exclusão só implícita num arquivo de config faz o job
+        # depender de algo invisível de quem lê o workflow.
+        run: python -m pytest -m "not integration" -q
+
+  # Exercita o que só existe no banco: policies de RLS e o trigger de
+  # imutabilidade de `eventos_aluno`. É o "portão de validação" do CLAUDE.md §9.
+  backend-integracao:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: vaivem
+          POSTGRES_PASSWORD: vaivem
+          POSTGRES_DB: vaivem
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vaivem -d vaivem"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Criar o papel de aplicação (sem superuser, sem BYPASSRLS)
+        env:
+          PGPASSWORD: vaivem
+        run: |
+          psql -h localhost -U vaivem -d vaivem -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE vaivem_app
+            LOGIN PASSWORD 'vaivem_app'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+          GRANT CONNECT ON DATABASE vaivem TO vaivem_app;
+          GRANT USAGE ON SCHEMA public TO vaivem_app;
+          SQL
+
+      - name: Migrations (como owner — o app não tem DDL)
+        env:
+          DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+        run: python -m alembic upgrade head
+
+      - name: Conceder privilégios de dados ao papel de aplicação
+        env:
+          PGPASSWORD: vaivem
+        # Depois das migrations, porque as tabelas precisam existir. O ALTER
+        # DEFAULT PRIVILEGES cobre o que migrations futuras criarem, para este
+        # passo não virar uma lista que envelhece a cada tabela nova.
+        run: |
+          psql -h localhost -U vaivem -d vaivem -v ON_ERROR_STOP=1 <<'SQL'
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO vaivem_app;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO vaivem_app;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vaivem_app;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT USAGE, SELECT ON SEQUENCES TO vaivem_app;
+          SQL
+
+      # Sem esta guarda o job tem um modo de falha SILENCIOSO e pior que estar
+      # ausente: se `vaivem_app` virasse superuser (ou ganhasse BYPASSRLS), o
+      # Postgres ignoraria as policies e TODOS os testes de isolamento
+      # passariam — verdes, provando exatamente nada. `FORCE ROW LEVEL
+      # SECURITY` não cobre isso: ele só remove a isenção do DONO da tabela,
+      # não afeta BYPASSRLS. Falhar alto aqui é o que dá sentido ao job.
+      - name: Provar que o papel de aplicação NÃO ignora RLS
+        env:
+          PGPASSWORD: vaivem
+        run: |
+          consultar() {
+            psql -h localhost -U vaivem -d vaivem -tAc \
+              "SELECT $1::text FROM pg_roles WHERE rolname = 'vaivem_app'"
+          }
+          super=$(consultar rolsuper)
+          bypass=$(consultar rolbypassrls)
+          echo "vaivem_app: rolsuper=${super:-<papel inexistente>} rolbypassrls=${bypass:-<papel inexistente>}"
+          if [ "$super" != "false" ] || [ "$bypass" != "false" ]; then
+            echo "::error::vaivem_app tem superuser e/ou bypassrls — os testes de RLS passariam sem provar isolamento nenhum."
+            exit 1
+          fi
+
+      - name: Testes unitários (como vaivem_app)
+        env:
+          DATABASE_URL: ${{ env.APP_DATABASE_URL }}
+          OWNER_DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+        run: python -m pytest -q
+
+      # `-m integration` na linha de comando é OBRIGATÓRIO: o pytest.ini traz
+      # `addopts = -m "not integration"`, então um `pytest` cru DESMARCA os 43
+      # testes de integração e termina verde tendo rodado só os 99 unitários.
+      # Como o `-m` da linha de comando vence o do addopts (o último ganha),
+      # este é o único jeito de realmente exercitar RLS e o trigger.
+      #
+      # A guarda do grep existe porque "0 testes selecionados" também seria
+      # verde. Entre um job que prova isolamento e um que não roda nada, a
+      # única diferença visível seria uma linha de contagem no log — e ninguém
+      # lê log de job que passou.
+      - name: Testes de integração — RLS e trigger, como vaivem_app
+        env:
+          # O papel SEM BYPASSRLS. É isto que faz os asserts de isolamento
+          # significarem alguma coisa.
+          DATABASE_URL: ${{ env.APP_DATABASE_URL }}
+          # Lido por tests/integration/conftest.py::_alembic_upgrade_head, que
+          # roda `alembic upgrade head` sempre como owner (idempotente — as
+          # migrations já subiram no passo acima).
+          OWNER_DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          python -m pytest -m integration -q | tee resultado-integracao.txt
+          if ! grep -qE '[0-9]+ passed' resultado-integracao.txt; then
+            echo "::error::Nenhum teste de integração foi executado — o job ficaria verde sem provar isolamento nenhum."
+            exit 1
+          fi

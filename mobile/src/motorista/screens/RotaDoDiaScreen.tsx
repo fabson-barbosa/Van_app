@@ -3,8 +3,10 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Botao56 } from "../../shared/components/Botao56";
+import { LinkToque } from "../../shared/components/LinkToque";
 import { ApiError, NetworkError } from "../../shared/api/client";
 import { endpoints } from "../../shared/api/endpoints";
 import type { ViagemOut } from "../../shared/api/types";
@@ -22,6 +24,7 @@ const ROTULO_STATUS: Record<ViagemOut["status"], string> = {
 
 export function RotaDoDiaScreen({ navigation }: Props): React.JSX.Element {
   const { logout, token } = useAuth();
+  const insets = useSafeAreaInsets();
   const [viagens, setViagens] = useState<ViagemOut[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -86,11 +89,9 @@ export function RotaDoDiaScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <View style={estilos.tela}>
-      <View style={estilos.cabecalho}>
+      <View style={[estilos.cabecalho, { paddingTop: espacamento.lg + insets.top }]}>
         <Text style={estilos.saudacao}>Rota do dia</Text>
-        <Text style={estilos.sair} onPress={() => void logout()}>
-          Sair
-        </Text>
+        <LinkToque titulo="Sair" cor={cores.esmaecido} onPress={() => void logout()} />
       </View>
 
       {erro ? <Text style={estilos.erro}>{erro}</Text> : null}
@@ -98,7 +99,7 @@ export function RotaDoDiaScreen({ navigation }: Props): React.JSX.Element {
       <FlatList
         data={viagens}
         keyExtractor={(v) => v.id}
-        contentContainerStyle={estilos.lista}
+        contentContainerStyle={[estilos.lista, { paddingBottom: espacamento.lg + insets.bottom }]}
         refreshControl={<RefreshControl refreshing={carregando} onRefresh={carregar} />}
         ListEmptyComponent={
           !carregando ? <Text style={estilos.vazio}>Nenhuma viagem para hoje.</Text> : null
@@ -134,18 +135,12 @@ const estilos = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: espacamento.lg,
-    paddingTop: espacamento.xl,
     paddingBottom: espacamento.md,
   },
   saudacao: {
     fontSize: tipografia.titulo,
     fontWeight: "700",
     color: cores.tinta,
-  },
-  sair: {
-    fontSize: 13,
-    color: cores.esmaecido,
-    fontWeight: "600",
   },
   erro: {
     color: cores.perigo,
@@ -157,6 +152,7 @@ const estilos = StyleSheet.create({
   lista: {
     padding: espacamento.lg,
     gap: espacamento.md,
+    flexGrow: 1,
   },
   vazio: {
     color: cores.dica,

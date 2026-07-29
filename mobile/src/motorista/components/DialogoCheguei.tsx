@@ -1,13 +1,20 @@
 /**
- * Único diálogo bloqueante do app (CLAUDE.md §6). Conteúdo taxativo:
- * nome do aluno em destaque, endereço abaixo (peso leve, cor secundária,
- * ~13sp), dois botões — Confirmar/Cancelar, nada mais.
+ * Diálogo do "Cheguei" (CLAUDE.md §6). Conteúdo taxativo: nome do aluno em
+ * destaque, endereço abaixo (peso leve, cor secundária, ~13sp), dois botões —
+ * Confirmar/Cancelar, nada mais.
+ *
+ * O §6 é explícito sobre POR QUE o nome vem em destaque e um "Confirmar?"
+ * genérico não serve: o erro que importa é Cheguei na parada errada, e só o
+ * nome do aluno permite pegar esse erro antes do push sair.
+ *
+ * Desde o B7 é uma casca fina sobre `DialogoConfirmacao` — a anatomia é a
+ * mesma dos demais diálogos, e mantê-las no mesmo componente impede que as
+ * duas linguagens visuais divirjam com o tempo. O que este arquivo preserva é
+ * o CONTRATO do §6 (o que entra em cada campo), não o desenho.
  */
 import React from "react";
-import { Modal, StyleSheet, Text, View } from "react-native";
 
-import { Botao56 } from "../../shared/components/Botao56";
-import { cores, espacamento, raio } from "../../shared/theme";
+import { DialogoConfirmacao } from "../../shared/components/DialogoConfirmacao";
 
 interface Props {
   visivel: boolean;
@@ -17,58 +24,25 @@ interface Props {
   onCancelar: () => void;
 }
 
-export function DialogoCheguei({ visivel, nomeAluno, endereco, onConfirmar, onCancelar }: Props): React.JSX.Element {
+export function DialogoCheguei({
+  visivel,
+  nomeAluno,
+  endereco,
+  onConfirmar,
+  onCancelar,
+}: Props): React.JSX.Element {
   return (
-    <Modal visible={visivel} transparent animationType="fade" onRequestClose={onCancelar}>
-      <View style={estilos.fundo}>
-        <View style={estilos.cartao}>
-          <Text style={estilos.nome}>{nomeAluno}</Text>
-          {endereco ? <Text style={estilos.endereco}>{endereco}</Text> : null}
-
-          <View style={estilos.botoes}>
-            <Botao56 titulo="Cancelar" variante="secundario" onPress={onCancelar} estilo={estilos.botao} />
-            <Botao56 titulo="Confirmar" variante="primario" onPress={onConfirmar} estilo={estilos.botao} />
-          </View>
-        </View>
-      </View>
-    </Modal>
+    <DialogoConfirmacao
+      visivel={visivel}
+      titulo={nomeAluno}
+      subtitulo={endereco}
+      rotuloConfirmar="Confirmar"
+      // Chegar numa parada não é destrutivo — o verde da marca está certo aqui.
+      // O push sai imediatamente depois (§6), mas `chegou` ainda tem volta pelo
+      // "Desfazer chegada" (§4), diferente de `ausente`/`entregue`.
+      varianteConfirmar="primario"
+      onConfirmar={onConfirmar}
+      onCancelar={onCancelar}
+    />
   );
 }
-
-const estilos = StyleSheet.create({
-  fundo: {
-    flex: 1,
-    backgroundColor: "rgba(16,35,30,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: espacamento.xl,
-  },
-  cartao: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: cores.cartao,
-    borderRadius: raio.lg,
-    padding: espacamento.xl,
-  },
-  nome: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: cores.tinta,
-    textAlign: "center",
-  },
-  endereco: {
-    fontSize: 13,
-    fontWeight: "400",
-    color: cores.esmaecido,
-    textAlign: "center",
-    marginTop: espacamento.xs,
-  },
-  botoes: {
-    flexDirection: "row",
-    gap: espacamento.md,
-    marginTop: espacamento.xl,
-  },
-  botao: {
-    flex: 1,
-  },
-});

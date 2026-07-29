@@ -24,9 +24,11 @@ import { ApiError, NetworkError } from "../../shared/api/client";
 import { useAuth } from "../../shared/auth/AuthContext";
 import { endpoints } from "../../shared/api/endpoints";
 import type { TripStudentOut, ViagemOut } from "../../shared/api/types";
+import { hapticoSucesso } from "../../shared/feedback/haptico";
 import * as fila from "../../shared/offline/queue";
 import { assinar, cancelarPendente, drenarFila, enfileirarEvento } from "../../shared/offline/sync";
 import type { AcaoEvento } from "../../shared/offline/queue";
+import { descartarUndo, registrarUndo } from "./undoCheckin";
 
 interface EstadoViagemStore {
   viagem: ViagemOut | null;
@@ -113,6 +115,7 @@ export function useViagemStore(viagemId: string) {
   useEffect(() => {
     const cancelar = assinar((evento) => {
       if (evento.tipo === "sincronizado" && evento.item.viagemId === viagemId) {
+        hapticoSucesso();
         aplicarSeMontado((anterior) => {
           const pendentes = { ...anterior.pendentesPorTripStudent };
           const restantes = (pendentes[evento.item.tripStudentId] ?? []).filter((id) => id !== evento.item.eventId);
@@ -183,9 +186,16 @@ export function useViagemStore(viagemId: string) {
     [executarAcao]
   );
 
+  /** O undo é registrado AQUI, num registro de módulo, e não na tela: no
+   * `useState` da `ViagemScreen` ele morria ao navegar até "Finalizar viagem"
+   * e voltar, ainda dentro dos 30s que a barra prometia. */
   const marcarCheckin = useCallback(
-    (tripStudentId: string) => executarAcao("checkin", tripStudentId, { estado: "a_bordo" }),
-    [executarAcao]
+    async (tripStudentId: string, nomeAluno: string) => {
+      const eventId = await executarAcao("checkin", tripStudentId, { estado: "a_bordo" });
+      registrarUndo({ viagemId, tripStudentId, nomeAluno, eventId });
+      return eventId;
+    },
+    [executarAcao, viagemId]
   );
 
   const marcarCheckout = useCallback(
@@ -208,6 +218,7 @@ export function useViagemStore(viagemId: string) {
    * servidor. Se já foi enviado, enfileira um `desfazer_checkin` de verdade. */
   const desfazerCheckin = useCallback(
     async (tripStudentId: string, eventIdDoCheckin: string | null) => {
+      if (eventIdDoCheckin) descartarUndo(eventIdDoCheckin);
       const aindaNaFila = eventIdDoCheckin
         ? (await fila.listar()).some((i) => i.eventId === eventIdDoCheckin)
         : false;
@@ -266,6 +277,7 @@ export function useViagemStore(viagemId: string) {
     marcarAusente,
     desfazerChegada,
     desfazerCheckin,
+    descartarUndo,
     reordenar,
     todosNaoTerminais,
     drenarFilaAgora: drenarFila,

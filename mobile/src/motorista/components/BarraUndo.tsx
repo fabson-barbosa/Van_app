@@ -3,39 +3,45 @@
  * (tolerância a latência/fila offline), mas a UI só oferece 30s pra não
  * incentivar o motorista a "corrigir" depois de a van já ter saído do lugar.
  *
- * Monte com uma `key` que mude por aluno/tentativa (ex.: `tripStudentId`) —
- * o timer é interno e reinicia sozinho a cada montagem.
+ * Bloco B7: o prazo agora vem de `expiraEm` (instante absoluto, guardado em
+ * `state/undoCheckin.ts`), não de um contador interno. Remontar o componente
+ * — voltar de outra tela, o Android recriar a view — não devolve mais tempo
+ * que já passou.
  */
 import React, { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { TOQUE_MIN, cores, espacamento, raio } from "../../shared/theme";
-
-const DURACAO_SEGUNDOS = 30;
+import { TOQUE_MIN, cores, espacamento, raio, tipografia } from "../../shared/theme";
 
 interface Props {
   nomeAluno: string;
+  /** Instante absoluto (ms) em que a oferta expira. */
+  expiraEm: number;
   onDesfazer: () => void;
   onExpirar: () => void;
 }
 
-export function BarraUndo({ nomeAluno, onDesfazer, onExpirar }: Props): React.JSX.Element {
-  const [restante, setRestante] = useState(DURACAO_SEGUNDOS);
+function segundosRestantes(expiraEm: number): number {
+  return Math.max(0, Math.ceil((expiraEm - Date.now()) / 1000));
+}
+
+export function BarraUndo({ nomeAluno, expiraEm, onDesfazer, onExpirar }: Props): React.JSX.Element {
+  const [restante, setRestante] = useState(() => segundosRestantes(expiraEm));
 
   useEffect(() => {
     const intervalo = setInterval(() => {
-      setRestante((atual) => {
-        if (atual <= 1) {
-          clearInterval(intervalo);
-          onExpirar();
-          return 0;
-        }
-        return atual - 1;
-      });
+      const agora = segundosRestantes(expiraEm);
+      setRestante(agora);
+      if (agora <= 0) {
+        clearInterval(intervalo);
+        onExpirar();
+      }
     }, 1000);
     return () => clearInterval(intervalo);
+    // `onExpirar` é recriado a cada render da tela; incluí-lo reiniciaria o
+    // intervalo o tempo todo. `expiraEm` é a identidade real desta barra.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [expiraEm]);
 
   return (
     <View style={estilos.base}>
@@ -64,12 +70,12 @@ const estilos = StyleSheet.create({
     borderRadius: raio.md,
     paddingLeft: espacamento.lg,
     paddingRight: espacamento.xs,
-    marginBottom: espacamento.md,
+    marginBottom: espacamento.sm,
   },
   texto: {
     flex: 1,
     color: "#ffffff",
-    fontSize: 13,
+    fontSize: tipografia.legenda,
     fontWeight: "600",
   },
   botao: {
