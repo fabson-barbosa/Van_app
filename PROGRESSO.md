@@ -921,9 +921,9 @@ notificação persistente.
   restantes, os 4 ramos que NÃO tocam banco (`chegou`/`entregue`/`ausente`/
   `aguardando` sem viagem iniciada), múltiplos alunos na mesma parada
   contam uma parada só.
-- **Integração, Postgres real (`pytest -m integration`, escritos mas NÃO
-  executados neste ambiente — sem Docker disponível, mesma situação do
-  gate B1→B2; rodar antes de considerar o bloco fechado de verdade)**:
+- **Integração, Postgres real (`pytest -m integration`)** — escritos sem
+  Docker disponível na sessão do B5 e **executados de verdade na sessão
+  seguinte** (ver "Validação contra Postgres real — feita" ao final do B5):
   - `tests/integration/test_payload_e_dismiss.py`: payload de
     chegada/iminência/preparo carrega os 3 ids de roteamento (na criação E
     no reagendamento por "estou atrasado" — regressão explícita pro bug de
@@ -943,8 +943,41 @@ notificação persistente.
     `api/viagens.py`, não confirma existência pra quem pergunta);
     `listar_filhos` não vaza aluno alheio; histórico mostra os eventos
     reais mas não os de "desfazer".
-  - `pytest` (99 passed) roda limpo neste ambiente; `pytest -m integration`
-    fica pendente do próximo acesso a Postgres real (docker-compose).
+  - `pytest` (99 passed) roda limpo neste ambiente.
+
+### Validação contra Postgres real — feita (sessão seguinte ao commit do B5)
+
+`docker compose up -d` + `alembic upgrade head` (como owner `vaivem` — o
+`.env` aponta pra `vaivem_app`, que não tem privilégio de DDL; erro
+`permission denied for table alembic_version` é o sintoma de esquecer isso),
+`pytest -m integration` (**45 passed**), `pytest` (99 passed),
+`scripts/seed_demo.py` idempotente sobre a base já existente (reconheceu o
+tenant, criou as 2 viagens do dia) e `scripts/simular_viagem.py` rodando a
+timeline completa com rollback no final. Dois erros só apareceram aqui:
+
+1. **Colisão de `device_tokens.token` em `test_expo_push.py` (bug de teste).**
+   O índice único de `token` é GLOBAL, não por tenant — e é assim de
+   propósito (um token do Expo identifica um aparelho físico; o mesmo token
+   em dois tenants tem que virar 409, ver `app/api/dispositivos.py`). Os
+   testes usavam literais fixos (`ExponentPushToken[abc]` em dois testes
+   diferentes) numa suíte que commita de verdade e não limpa a base:
+   `UniqueViolation` entre dois testes da MESMA rodada, e teria falhado em
+   todos eles na rodada seguinte. Corrigido com sufixo aleatório por chamada
+   (`_token()`), mantendo o apelido legível na asserção. Confirmado rodando
+   a suíte **duas vezes seguidas** sem recriar o banco.
+2. **`ExpoPushSender` podia levantar, violando o próprio contrato (bug de
+   produção).** `resposta.json()` estava FORA do `try` — um proxy/captive
+   portal devolvendo HTML com status 200 levanta `ValueError`, e como o
+   sender roda ANTES do commit do evento de domínio (`pos_evento.py`), isso
+   derrubaria o Cheguei do motorista por causa de uma falha de push. O
+   `except` também só cobria `httpx.HTTPError`. Corrigido: leitura do corpo
+   dentro do `try`, `except (httpx.HTTPError, ValueError)`, `corpo` só é
+   lido como dict se realmente for um (`isinstance`), e o cliente HTTP
+   próprio passou a ser fechado via `with` (antes vazava a conexão quando o
+   `post` levantava). Dois testes novos travam a regressão
+   (`test_resposta_nao_json_nao_derruba_a_transacao_do_evento`,
+   `test_falha_de_rede_nao_derruba_a_transacao_do_evento`) — 45 testes de
+   integração no total, contra 43 antes.
 
 ### O que foi feito — App (`mobile/`)
 
@@ -1000,9 +1033,8 @@ depois): `expo-notifications` (~0.32.17), `expo-device` (~8.0.10),
 
 ### Pendências / TODOs explícitos
 
-- **Validar contra Postgres real**: `alembic upgrade head` (migration
-  `0009`), `pytest -m integration` (payload/dismiss, expo_push,
-  responsavel — os 3 arquivos novos), seed continua rodando limpo.
+- ~~**Validar contra Postgres real**~~ — **quitado**, ver "Validação contra
+  Postgres real — feita" acima (45 testes de integração, 2 bugs corrigidos).
 - **Testar em aparelho físico via Expo Go**: login como responsável (seed
   do B1 já cria responsáveis — `permissoes.receber_notificacoes` default
   permissivo), registro de push (precisa de `eas init` — projeto EAS

@@ -89,6 +89,14 @@ class ExpoPushSender:
         device_token.desativado_em = datetime.datetime.now(datetime.timezone.utc)
         logger.info("device_token_desativado token_id=%s motivo=%s", device_token.id, motivo)
 
+    @staticmethod
+    def _post(cliente, mensagens: list[dict]):
+        return cliente.post(
+            _EXPO_PUSH_URL,
+            json=mensagens,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+        )
+
     def enviar(self, *, destinatario_user_id, tipo: str, payload: dict) -> None:
         dispositivos = self._tokens_ativos(destinatario_user_id)
         if not dispositivos:
@@ -97,22 +105,24 @@ class ExpoPushSender:
         mensagens = [_montar_mensagem(d.token, tipo, payload) for d in dispositivos]
         por_token = {d.token: d for d in dispositivos}
 
+        # Todo o diálogo com o Expo — incluindo a LEITURA do corpo — fica dentro
+        # do try: um proxy/captive portal devolvendo HTML com 200 faz
+        # `.json()` levantar `ValueError`, e isso vazando daqui derrubaria a
+        # transação do evento de domínio (roda antes do commit) — exatamente o
+        # que o contrato "nunca lança" deste módulo existe para impedir.
         try:
-            cliente = self._cliente or httpx.Client(timeout=_TIMEOUT_SEGUNDOS)
-            resposta = cliente.post(
-                _EXPO_PUSH_URL,
-                json=mensagens,
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-            )
-            if self._cliente is None:
-                cliente.close()
+            if self._cliente is not None:
+                resposta = self._post(self._cliente, mensagens)
+            else:
+                with httpx.Client(timeout=_TIMEOUT_SEGUNDOS) as cliente:
+                    resposta = self._post(cliente, mensagens)
             resposta.raise_for_status()
-        except httpx.HTTPError as exc:
+            corpo = resposta.json()
+        except (httpx.HTTPError, ValueError) as exc:
             logger.warning("expo_push_falhou destinatario=%s tipo=%s erro=%s", destinatario_user_id, tipo, exc)
             return
 
-        corpo = resposta.json()
-        resultados = corpo.get("data", [])
+        resultados = corpo.get("data", []) if isinstance(corpo, dict) else []
         for mensagem, resultado in zip(mensagens, resultados):
             if resultado.get("status") != "error":
                 continue

@@ -7,8 +7,7 @@ montagem de mensagem e desativação de token morto, não a rede.
 """
 import uuid
 
-from sqlalchemy import select
-
+import httpx
 import pytest
 
 from app.core.security import hash_password
@@ -46,6 +45,19 @@ class _ClienteFake:
         return _RespostaFake({"data": dados})
 
 
+def _token(apelido: str) -> str:
+    """`uq_device_tokens_token` é único GLOBAL, não por tenant (um token do Expo
+    identifica um aparelho físico, e o mesmo token em dois tenants tem que
+    virar 409 — ver `models/device_token.py` e `app/api/dispositivos.py`), então
+    usar tenants diferentes não salva: a colisão é no literal. E o fixture
+    `db_session` só faz rollback, que não desfaz o commit do teste anterior —
+    literal fixo colide entre dois testes da MESMA rodada e entre rodadas
+    sucessivas. O sufixo aleatório mantém o apelido legível na asserção sem
+    depender de base limpa (mesmo motivo pelo qual `_criar_tenant_e_user` já
+    gera nome de tenant e e-mail com uuid)."""
+    return f"ExponentPushToken[{apelido}-{uuid.uuid4().hex[:8]}]"
+
+
 def _criar_tenant_e_user(session) -> tuple[uuid.UUID, uuid.UUID]:
     tenant = Tenant(id=uuid.uuid4(), nome=f"Tenant ExpoPush {uuid.uuid4()}", plano="pro", status_billing="ativo")
     session.add(tenant)
@@ -72,7 +84,8 @@ def test_sem_token_ativo_nao_faz_chamada_http(db_session):
 
 def test_token_ativo_recebe_mensagem_com_data_e_titulo_fallback(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[abc]", ativo=True))
+    token = _token("abc")
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=token, ativo=True))
     db_session.commit()
     cliente = _ClienteFake()
 
@@ -83,7 +96,7 @@ def test_token_ativo_recebe_mensagem_com_data_e_titulo_fallback(db_session):
 
     assert len(cliente.chamadas) == 1
     (mensagem,) = cliente.chamadas[0]
-    assert mensagem["to"] == "ExponentPushToken[abc]"
+    assert mensagem["to"] == token
     assert mensagem["title"] == "Chegamos!"
     assert mensagem["data"]["tipo"] == "chegada"
     assert mensagem["data"]["trip_student_id"] == "ts1"
@@ -92,7 +105,7 @@ def test_token_ativo_recebe_mensagem_com_data_e_titulo_fallback(db_session):
 def test_token_inativo_nao_recebe_mensagem(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
     db_session.add(
-        DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[morto]", ativo=False)
+        DeviceToken(tenant_id=tenant_id, user_id=user_id, token=_token("inativo"), ativo=False)
     )
     db_session.commit()
     cliente = _ClienteFake()
@@ -104,14 +117,7 @@ def test_token_inativo_nao_recebe_mensagem(db_session):
 
 def test_dismiss_chegada_e_silencioso_sem_titulo_nem_corpo(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    # Token PRÓPRIO, não o "[abc]" de
-    # `test_token_ativo_recebe_mensagem_com_data_e_titulo_fallback`:
-    # `uq_device_tokens_token` é global, não por tenant (um aparelho tem um
-    # token só — ver models/device_token.py), e o fixture `db_session` só faz
-    # rollback, que não desfaz o commit do teste anterior. Tenants diferentes
-    # não salvam: a colisão é no literal. Mesmo motivo pelo qual
-    # `_criar_tenant_e_user` já gera nome de tenant e e-mail com uuid.
-    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[dismiss]", ativo=True))
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=_token("silencioso"), ativo=True))
     db_session.commit()
     cliente = _ClienteFake()
 
@@ -127,13 +133,14 @@ def test_dismiss_chegada_e_silencioso_sem_titulo_nem_corpo(db_session):
 
 def test_device_not_registered_desativa_o_token(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    token = DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[morto2]", ativo=True)
+    valor = _token("morto")
+    token = DeviceToken(tenant_id=tenant_id, user_id=user_id, token=valor, ativo=True)
     db_session.add(token)
     db_session.commit()
     token_id = token.id
 
     cliente = _ClienteFake({
-        "ExponentPushToken[morto2]": {"status": "error", "message": "não registrado", "details": {"error": "DeviceNotRegistered"}}
+        valor: {"status": "error", "message": "não registrado", "details": {"error": "DeviceNotRegistered"}}
     })
     ExpoPushSender(db_session, cliente=cliente).enviar(destinatario_user_id=user_id, tipo="chegada", payload={})
     db_session.commit()
@@ -145,13 +152,14 @@ def test_device_not_registered_desativa_o_token(db_session):
 
 def test_erro_diferente_de_device_not_registered_nao_desativa_o_token(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    token = DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[temp]", ativo=True)
+    valor = _token("rate-limited")
+    token = DeviceToken(tenant_id=tenant_id, user_id=user_id, token=valor, ativo=True)
     db_session.add(token)
     db_session.commit()
     token_id = token.id
 
     cliente = _ClienteFake({
-        "ExponentPushToken[temp]": {"status": "error", "message": "rate limited", "details": {"error": "MessageRateExceeded"}}
+        valor: {"status": "error", "message": "rate limited", "details": {"error": "MessageRateExceeded"}}
     })
     ExpoPushSender(db_session, cliente=cliente).enviar(destinatario_user_id=user_id, tipo="chegada", payload={})
     db_session.commit()
@@ -160,10 +168,50 @@ def test_erro_diferente_de_device_not_registered_nao_desativa_o_token(db_session
     assert atualizado.ativo is True
 
 
+def test_resposta_nao_json_nao_derruba_a_transacao_do_evento(db_session):
+    """Contrato "nunca lança" (docstring do módulo): `ExpoPushSender` roda
+    ANTES do commit do evento de domínio. Um proxy/captive portal devolvendo
+    HTML com status 200 faz `.json()` levantar — se isso vazar, o Cheguei do
+    motorista é perdido por causa de uma falha de push."""
+    tenant_id, user_id = _criar_tenant_e_user(db_session)
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=_token("corpo-invalido"), ativo=True))
+    db_session.commit()
+
+    class _RespostaHtml:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+    class _ClienteHtml:
+        def post(self, url: str, *, json: list[dict], headers: dict) -> _RespostaHtml:
+            return _RespostaHtml()
+
+    ExpoPushSender(db_session, cliente=_ClienteHtml()).enviar(
+        destinatario_user_id=user_id, tipo="chegada", payload={}
+    )  # não pode levantar
+
+
+def test_falha_de_rede_nao_derruba_a_transacao_do_evento(db_session):
+    tenant_id, user_id = _criar_tenant_e_user(db_session)
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=_token("sem-rede"), ativo=True))
+    db_session.commit()
+
+    class _ClienteOffline:
+        def post(self, url: str, *, json: list[dict], headers: dict):
+            raise httpx.ConnectError("sem rota para o host")
+
+    ExpoPushSender(db_session, cliente=_ClienteOffline()).enviar(
+        destinatario_user_id=user_id, tipo="chegada", payload={}
+    )  # não pode levantar
+
+
 def test_multiplos_tokens_do_mesmo_usuario_recebem_todos(db_session):
     tenant_id, user_id = _criar_tenant_e_user(db_session)
-    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[celular]", ativo=True))
-    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token="ExponentPushToken[tablet]", ativo=True))
+    celular, tablet = _token("celular"), _token("tablet")
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=celular, ativo=True))
+    db_session.add(DeviceToken(tenant_id=tenant_id, user_id=user_id, token=tablet, ativo=True))
     db_session.commit()
     cliente = _ClienteFake()
 
@@ -171,4 +219,4 @@ def test_multiplos_tokens_do_mesmo_usuario_recebem_todos(db_session):
 
     (mensagens,) = cliente.chamadas
     tokens_enviados = {m["to"] for m in mensagens}
-    assert tokens_enviados == {"ExponentPushToken[celular]", "ExponentPushToken[tablet]"}
+    assert tokens_enviados == {celular, tablet}
