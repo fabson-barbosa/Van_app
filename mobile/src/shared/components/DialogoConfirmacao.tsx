@@ -13,16 +13,28 @@
  * checkbox, terceira opção ou texto explicativo extra — o motorista está
  * dirigindo, e o custo de ler é o que se está tentando eliminar.
  *
- * GUARDA_MS existe porque o risco real não é o toque acidental, é o REFLEXO:
- * um diálogo que sempre aparece no mesmo lugar vira "toca duas vezes" em três
- * dias, e aí ele deixou de proteger. Travar os botões por um instante depois
- * de abrir garante que o segundo toque de um toque-duplo não confirme nada.
+ * GUARDA_MS existe porque o risco real não é o toque acidental, é o REFLEXO: um
+ * diálogo que sempre aparece no mesmo lugar vira "toca duas vezes" em três dias,
+ * e aí ele deixou de proteger. Travar os botões por um instante depois de abrir
+ * garante que o segundo toque de um toque-duplo não confirme nada.
+ *
+ * Bloco B8 — o desenho mudou, o contrato não:
+ *
+ * - **Confirmar em cima, Cancelar embaixo**, em coluna. Lado a lado, os dois
+ *   botões tinham a mesma massa visual e ficavam a 12dp um do outro: ruim para
+ *   um alvo que é irreversível e outro que é a saída. Em coluna o confirmar
+ *   ocupa a largura toda na zona do polegar e o cancelar fica claramente
+ *   separado dele.
+ * - **A guarda agora é visível.** Botão travado por 400ms sem explicação parece
+ *   travamento do app; o subtítulo do botão mostra a contagem. Sem isso o
+ *   motorista toca de novo achando que não pegou — exatamente o reflexo que a
+ *   guarda existe para impedir.
  */
 import React, { useEffect, useState } from "react";
 import { Modal, StyleSheet, Text, View } from "react-native";
 
 import { Botao56 } from "./Botao56";
-import { cores, espacamento, raio, tipografia } from "../theme";
+import { type Paleta, espacamento, peso, raio, tipografia, useEstilos, useTema } from "../theme";
 
 /** Janela em que os botões ficam inertes depois de o diálogo abrir. */
 export const GUARDA_MS = 400;
@@ -46,6 +58,8 @@ export function DialogoConfirmacao({
   onConfirmar,
   onCancelar,
 }: Props): React.JSX.Element {
+  const { cores } = useTema();
+  const estilos = useEstilos(criarEstilos, cores);
   const [liberado, setLiberado] = useState(false);
 
   useEffect(() => {
@@ -62,6 +76,7 @@ export function DialogoConfirmacao({
       visible={visivel}
       transparent
       animationType="fade"
+      statusBarTranslucent
       // Botão físico Voltar do Android CANCELA — nunca confirma.
       onRequestClose={onCancelar}
     >
@@ -72,22 +87,21 @@ export function DialogoConfirmacao({
 
           <View style={estilos.botoes}>
             <Botao56
+              titulo={rotuloConfirmar}
+              variante={varianteConfirmar}
+              tamanho="grande"
+              desabilitado={!liberado}
+              detalhe={liberado ? null : "aguarde um instante"}
+              onPress={onConfirmar}
+              testID="dialogo-confirmar"
+            />
+            <Botao56
               titulo="Cancelar"
               variante="secundario"
               tamanho="grande"
               desabilitado={!liberado}
               onPress={onCancelar}
-              estilo={estilos.botao}
               testID="dialogo-cancelar"
-            />
-            <Botao56
-              titulo={rotuloConfirmar}
-              variante={varianteConfirmar}
-              tamanho="grande"
-              desabilitado={!liberado}
-              onPress={onConfirmar}
-              estilo={estilos.botao}
-              testID="dialogo-confirmar"
             />
           </View>
         </View>
@@ -96,40 +110,41 @@ export function DialogoConfirmacao({
   );
 }
 
-const estilos = StyleSheet.create({
-  fundo: {
-    flex: 1,
-    backgroundColor: "rgba(16,35,30,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: espacamento.xl,
-  },
-  cartao: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: cores.cartao,
-    borderRadius: raio.lg,
-    padding: espacamento.xl,
-  },
-  titulo: {
-    fontSize: tipografia.destaque,
-    fontWeight: "700",
-    color: cores.tinta,
-    textAlign: "center",
-  },
-  subtitulo: {
-    fontSize: tipografia.legenda,
-    fontWeight: "400",
-    color: cores.esmaecido,
-    textAlign: "center",
-    marginTop: espacamento.xs,
-  },
-  botoes: {
-    flexDirection: "row",
-    gap: espacamento.md,
-    marginTop: espacamento.xl,
-  },
-  botao: {
-    flex: 1,
-  },
-});
+const criarEstilos = (cores: Paleta) =>
+  StyleSheet.create({
+    fundo: {
+      flex: 1,
+      backgroundColor: cores.overlay,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: espacamento.xl,
+    },
+    cartao: {
+      width: "100%",
+      maxWidth: 400,
+      backgroundColor: cores.cartao,
+      borderRadius: raio.lg,
+      borderWidth: 1,
+      borderColor: cores.linha2,
+      paddingVertical: espacamento.xl,
+      paddingHorizontal: espacamento.lg,
+    },
+    titulo: {
+      fontSize: tipografia.destaque,
+      fontWeight: peso.forte,
+      color: cores.tinta,
+      textAlign: "center",
+    },
+    subtitulo: {
+      fontSize: tipografia.endereco,
+      fontWeight: peso.normal,
+      color: cores.esmaecido,
+      textAlign: "center",
+      marginTop: espacamento.sm,
+      lineHeight: tipografia.endereco * 1.4,
+    },
+    botoes: {
+      gap: espacamento.md,
+      marginTop: espacamento.xl,
+    },
+  });

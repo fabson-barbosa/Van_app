@@ -29,8 +29,9 @@ import { ListaFilhosScreen } from "../responsavel/screens/ListaFilhosScreen";
 import { useAuth } from "../shared/auth/AuthContext";
 import { iniciarDrenagemAutomatica } from "../shared/offline/sync";
 import { LoginScreen, mensagemErroLogin } from "../shared/screens/LoginScreen";
-import { cores, espacamento } from "../shared/theme";
+import { TemaClaroFixo, comTemaClaro, cores, espacamento } from "../shared/theme";
 import { FinalizarViagemScreen } from "../motorista/screens/FinalizarViagemScreen";
+import { PreferenciasScreen } from "../motorista/screens/PreferenciasScreen";
 import { RotaDoDiaScreen } from "../motorista/screens/RotaDoDiaScreen";
 import { ViagemScreen } from "../motorista/screens/ViagemScreen";
 import { inicializarNotificacoes } from "../shared/notifications";
@@ -40,6 +41,23 @@ import type { RootStackParamList } from "./types";
 export type { RootStackParamList };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+/**
+ * Telas fora do escopo do B8 (Bloco B8).
+ *
+ * O tema claro/escuro foi construído para o Motorista. Login e Responsável
+ * continuam desenhando com a paleta clara estática nos próprios `StyleSheet`, mas
+ * os componentes compartilhados que vivem dentro deles já leem `useTema()` — sem
+ * travar a subárvore em claro, o Android em modo escuro deixaria essas telas com
+ * botão e selos de uma paleta e o fundo de outra. Ver
+ * `shared/theme/TemaContext.tsx::comTemaClaro`.
+ *
+ * Quando um bloco futuro redesenhar o Responsável, basta apagar estes embrulhos.
+ */
+const LoginClaro = comTemaClaro(LoginScreen);
+const ListaFilhosClaro = comTemaClaro(ListaFilhosScreen);
+const AcompanharFilhoClaro = comTemaClaro(AcompanharFilhoScreen);
+const HistoricoFilhoClaro = comTemaClaro(HistoricoFilhoScreen);
 
 export function RootNavigator(): React.JSX.Element {
   const { token, role, carregando } = useAuth();
@@ -66,18 +84,19 @@ export function RootNavigator(): React.JSX.Element {
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token == null ? (
-          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Login" component={LoginClaro} />
         ) : role === "responsavel" ? (
           <>
-            <Stack.Screen name="ListaFilhos" component={ListaFilhosScreen} />
-            <Stack.Screen name="AcompanharFilho" component={AcompanharFilhoScreen} />
-            <Stack.Screen name="HistoricoFilho" component={HistoricoFilhoScreen} />
+            <Stack.Screen name="ListaFilhos" component={ListaFilhosClaro} />
+            <Stack.Screen name="AcompanharFilho" component={AcompanharFilhoClaro} />
+            <Stack.Screen name="HistoricoFilho" component={HistoricoFilhoClaro} />
           </>
         ) : (
           <>
             <Stack.Screen name="RotaDoDia" component={RotaDoDiaScreen} />
             <Stack.Screen name="Viagem" component={ViagemScreen} />
             <Stack.Screen name="FinalizarViagem" component={FinalizarViagemScreen} />
+            <Stack.Screen name="Preferencias" component={PreferenciasScreen} />
           </>
         )}
       </Stack.Navigator>
@@ -112,24 +131,31 @@ function PromptReautenticacao(): React.JSX.Element | null {
   // Reaproveita o formulário simples do LoginScreen num modal — os eventos
   // já enfileirados continuam intactos e a fila retoma sozinha (ver
   // AuthContext::login -> retomarAposRelogin()).
+  //
+  // `TemaClaroFixo` (sem barra de status — o modal não ocupa a tela inteira e
+  // pode aparecer sobre uma tela do Motorista em tema escuro): o formulário do
+  // LoginScreen desenha com a paleta clara estática, então os componentes
+  // compartilhados dentro dele precisam da mesma.
   return (
-    <Modal visible transparent animationType="fade">
-      <View style={estilos.fundoModal}>
-        <View style={estilos.cartaoModal}>
-          <Text style={estilos.titulo}>Sessão expirada</Text>
-          <Text style={estilos.subtitulo}>Faça login de novo. Nada da viagem foi perdido.</Text>
-          <LoginScreen
-            embutido
-            email={email}
-            senha={senha}
-            onMudarEmail={setEmail}
-            onMudarSenha={setSenha}
-            onEntrar={entrar}
-            enviando={enviando}
-            erro={erro}
-          />
+    <Modal visible transparent animationType="fade" statusBarTranslucent>
+      <TemaClaroFixo>
+        <View style={estilos.fundoModal}>
+          <View style={estilos.cartaoModal}>
+            <Text style={estilos.titulo}>Sessão expirada</Text>
+            <Text style={estilos.subtitulo}>Faça login de novo. Nada da viagem foi perdido.</Text>
+            <LoginScreen
+              embutido
+              email={email}
+              senha={senha}
+              onMudarEmail={setEmail}
+              onMudarSenha={setSenha}
+              onEntrar={entrar}
+              enviando={enviando}
+              erro={erro}
+            />
+          </View>
         </View>
-      </View>
+      </TemaClaroFixo>
     </Modal>
   );
 }

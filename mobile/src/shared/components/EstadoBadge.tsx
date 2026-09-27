@@ -7,19 +7,27 @@
  * no aluno errado, ou marcar ausente alguém lá na frente porque o responsável
  * avisou de manhã (caso previsto no §4, `aguardando` -> `ausente`).
  *
- * Um selo não parece um botão — é o custo da decisão de não poluir a linha com
- * um terceiro alvo. Duas coisas compensam isso: o sufixo "▾", que só aparece
- * quando o badge é tocável, e a mensagem do bloqueio §7.2, que cita o caminho
- * pelo nome ("toque no selo Chegou de Fulano").
+ * Bloco B8 — três correções:
  *
- * `hitSlop` não é cosmético aqui: o badge tem ~24dp de altura, e sem ele o
- * alvo violaria o piso de 56dp do §8.
+ * 1. **13sp, não 12,5.** O §8 fixa 13sp como piso e este componente era o
+ *    exemplo mais visível de quem não cumpria. Como compensação de espaço o
+ *    rótulo virou caixa alta com `letterSpacing`, que ocupa menos altura e lê
+ *    melhor de relance que minúsculas no mesmo tamanho.
+ * 2. **Fundo opaco por paleta.** O selo "Aguardando" usava `rgba(16,35,30,0.10)`
+ *    — translúcido, logo sem razão de contraste demonstrável, e sobre fundo
+ *    escuro viraria um cinza quase invisível. Agora é `neutroSuave`.
+ * 3. **O "▾" virou ponto.** A seta sugeria "expandir uma lista"; o que abre é um
+ *    menu de correção. Um marcador redondo na frente do rótulo diz "tem algo
+ *    aqui" sem prometer a mecânica errada, e sobra largura para o rótulo.
+ *
+ * `hitSlop` não é cosmético: o selo tem ~26dp de altura e sem ele o alvo
+ * violaria o piso de 56dp do §8.
  */
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { TripStudentEstado } from "../api/types";
-import { cores, raio } from "../theme";
+import { ESPACO_LETRA_SELO, type Paleta, peso, raio, tipografia, useEstilos, useTema } from "../theme";
 
 const ROTULOS: Record<TripStudentEstado, string> = {
   aguardando: "Aguardando",
@@ -29,47 +37,52 @@ const ROTULOS: Record<TripStudentEstado, string> = {
   ausente: "Ausente",
 };
 
-const CORES: Record<TripStudentEstado, { fundo: string; texto: string }> = {
-  aguardando: { fundo: cores.linha, texto: cores.esmaecido },
-  chegou: { fundo: cores.infoSuave, texto: cores.info },
-  a_bordo: { fundo: cores.marcaSuave, texto: cores.marca },
-  entregue: { fundo: cores.marcaSuave, texto: cores.marca },
-  ausente: { fundo: cores.ambarSuave, texto: cores.ambar },
-};
+function paletaDoEstado(cores: Paleta, estado: TripStudentEstado): { fundo: string; texto: string; borda: string } {
+  switch (estado) {
+    case "aguardando":
+      return { fundo: cores.neutroSuave, texto: cores.esmaecido, borda: cores.linha2 };
+    case "chegou":
+      return { fundo: cores.infoSuave, texto: cores.info, borda: cores.infoBorda };
+    case "a_bordo":
+    case "entregue":
+      return { fundo: cores.marcaSuave, texto: cores.marca, borda: cores.marcaBorda };
+    case "ausente":
+      return { fundo: cores.ambarSuave, texto: cores.ambar, borda: cores.ambarBorda };
+  }
+}
 
 /** Vertical necessário para o alvo chegar a TOQUE_MIN (56dp) a partir da
- * altura natural do badge (~24dp com o padding abaixo). */
-const HITSLOP_TOCAVEL = { top: 16, bottom: 16, left: 12, right: 12 };
+ * altura natural do selo. */
+const HITSLOP_TOCAVEL = { top: 15, bottom: 15, left: 12, right: 12 };
 
 interface Props {
   estado: TripStudentEstado;
-  /** Quando presente, o badge vira alvo e ganha o sufixo "▾". */
+  /** Quando presente, o selo vira alvo e ganha o marcador de ação. */
   onPress?: () => void;
   /** Nome do aluno — só para o rótulo de acessibilidade. */
   nomeAluno?: string;
 }
 
 export function EstadoBadge({ estado, onPress, nomeAluno }: Props): React.JSX.Element {
-  const { fundo, texto } = CORES[estado];
+  const { cores } = useTema();
+  const estilos = useEstilos(criarEstilos, cores);
+  const { fundo, texto, borda } = paletaDoEstado(cores, estado);
+  const tocavel = onPress != null;
 
   const conteudo = (
-    <View style={[estilos.base, { backgroundColor: fundo }, onPress != null && estilos.tocavel]}>
-      <Text style={[estilos.texto, { color: texto }]}>
-        {ROTULOS[estado]}
-        {onPress != null ? " ▾" : ""}
-      </Text>
+    <View style={[estilos.base, { backgroundColor: fundo, borderColor: borda }]}>
+      {tocavel ? <View style={[estilos.marcador, { backgroundColor: texto }]} /> : null}
+      <Text style={[estilos.texto, { color: texto }]}>{ROTULOS[estado].toUpperCase()}</Text>
     </View>
   );
 
-  if (onPress == null) return conteudo;
+  if (!tocavel) return conteudo;
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={
-        nomeAluno
-          ? `${ROTULOS[estado]} — abrir ações de ${nomeAluno}`
-          : `${ROTULOS[estado]} — abrir ações`
+        nomeAluno ? `${ROTULOS[estado]} — abrir ações de ${nomeAluno}` : `${ROTULOS[estado]} — abrir ações`
       }
       onPress={onPress}
       hitSlop={HITSLOP_TOCAVEL}
@@ -80,22 +93,29 @@ export function EstadoBadge({ estado, onPress, nomeAluno }: Props): React.JSX.El
   );
 }
 
-const estilos = StyleSheet.create({
-  base: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: raio.sm,
-    alignSelf: "flex-start",
-  },
-  tocavel: {
-    borderWidth: 1,
-    borderColor: cores.linha2,
-  },
-  pressionado: {
-    opacity: 0.7,
-  },
-  texto: {
-    fontSize: 12.5,
-    fontWeight: "700",
-  },
-});
+const criarEstilos = (_cores: Paleta) =>
+  StyleSheet.create({
+    base: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: raio.pilula,
+      borderWidth: 1,
+      alignSelf: "flex-start",
+    },
+    marcador: {
+      width: 6,
+      height: 6,
+      borderRadius: raio.pilula,
+    },
+    texto: {
+      fontSize: tipografia.legenda,
+      fontWeight: peso.forte,
+      letterSpacing: ESPACO_LETRA_SELO,
+    },
+    pressionado: {
+      opacity: 0.65,
+    },
+  });

@@ -199,9 +199,10 @@ Ele está dirigindo. A interface é dimensionada para pressa, não para conforto
 - Reordenar paradas permitido **antes** do Cheguei (senão o trajeto é atribuído
   ao par errado)
 - Fila offline: eventos persistem localmente e reenviam ao recuperar sinal
-- **Feedback tátil** nas ações e nos erros. Confirmação só visual obriga o
-  motorista a olhar a tela para saber se o toque pegou — exatamente o que estas
-  restrições existem para evitar
+- **Feedback tátil e sonoro** nas ações e nos erros. Confirmação só visual obriga
+  o motorista a olhar a tela para saber se o toque pegou — exatamente o que estas
+  restrições existem para evitar. Ver "Retorno sem olhar" abaixo
+- **Tema claro e escuro**, com contraste AA nos dois. Ver "Tema" abaixo
 - Contraste **WCAG AA** e piso de fonte de **13sp**: a tela é lida sob sol
   direto, em aparelho antigo (§2)
 - Tela não apaga durante a viagem em andamento
@@ -223,7 +224,9 @@ irreversível.
   das ações *fora de ordem* — o que não segue a sequência da rota: corrigir um
   Cheguei no aluno errado, ou marcar ausente alguém lá na frente porque o
   responsável avisou de manhã (§4). O badge só é tocável em `aguardando` e
-  `chegou`, e leva o sufixo "▾" quando é.
+  `chegou`, e sinaliza isso visualmente quando é (o B8 trocou o sufixo "▾" por
+  um marcador redondo: a seta prometia "expandir lista", e o que abre é um menu
+  de correção).
 - **Parada atual é por fase, não "o primeiro não-terminal".** Quem embarcou
   fica `a_bordo` pela rota inteira; a regra ingênua ofereceria *Checkout* do
   aluno 1 enquanto a van ainda vai buscar o aluno 3. Enquanto houver alguém em
@@ -232,6 +235,44 @@ irreversível.
 - O cabeçalho mostra **quantos faltam** (não "concluídos") e o atraso
   acumulado. Ausente conta como resolvido — senão uma rota com duas faltas
   fecha o turno parecendo inacabada.
+
+### Retorno sem olhar (revisão do B8)
+
+O B7 resolveu metade do problema com vibração. A outra metade: o aparelho fica
+no **suporte do painel**, não na mão — vibração num suporte de plástico não
+chega ao motorista. Som chega.
+
+- **Quatro sons**, um por classe de evento da máquina de estados, não por botão:
+  comando aceito (`Cheguei`/`Checkin` — intervalo ascendente), estado terminal
+  alcançado (`Checkout`/`Ausente`/`Finalizar` — cadência descendente resolvida),
+  reversão (desfazer — glissando descendente), recusa (409, bloqueio §7.2 —
+  dissonância). O motorista sabe qual botão apertou; o som diz se **entrou** e
+  em que categoria.
+- **Faixa de 700 Hz a 1,4 kHz.** Alto-falante de aparelho antigo não reproduz
+  grave e o ruído de motor mora embaixo de 500 Hz — um "buzz" grave de erro é
+  exatamente o que não se ouve dentro da van.
+- **`duckOthers`**: abaixa o rádio/navegação por um instante, nunca pausa.
+- **Sincronização da fila não toca som.** Ela acontece quando o sinal volta,
+  possivelmente minutos depois do toque, sem contexto nenhum para quem está
+  dirigindo — som solto vira ruído, e ruído faz desligar o recurso. Vibra e
+  aparece no indicador de fila, nada mais.
+- Silenciável nas preferências. A vibração fica nos dois casos; som e tato são
+  reforço, **nunca** canal primário: nenhum fluxo pode depender deles.
+
+### Tema (revisão do B8)
+
+Claro, escuro e automático (segue o Android), escolhido pelo motorista e
+persistido no aparelho. O escuro não é preto puro: com o aparelho no painel, de
+noite, preto absoluto com texto branco ofusca e floresce em OLED.
+
+**A regra que importa**: contraste AA (4,5:1 para texto) vale nas **duas**
+paletas, e isso é verificado por teste, não por inspeção — a mesma cor de marca
+que passa sobre creme tem 1,7:1 sobre grafite, e esse tipo de erro é invisível
+para quem desenvolve num monitor bom, em escritório. O piso de 13sp também é
+verificado por teste. Superfície preenchida carrega o próprio primeiro plano
+(o botão primário é verde escuro com texto branco no claro, verde claro com
+texto quase preto no escuro): cor de texto fixa no componente reprova num dos
+dois temas, sempre.
 
 ## 9. Ordem de implementação
 
@@ -244,6 +285,7 @@ irreversível.
 | **B5** | App Responsável (push + mapa virtual) | Sonnet |
 | **B6** | Hardening LGPD: retenção, expurgo, exportação de dados | fora desta rodada |
 | **B7** | UX do Motorista: confirmação das ações irreversíveis, card de parada atual, háptico, legibilidade | Opus |
+| **B8** | Design do Motorista: tema claro/escuro com AA verificado, sons de confirmação, reconstrução visual das telas | Opus |
 
 ### Portão de validação antes do B2
 

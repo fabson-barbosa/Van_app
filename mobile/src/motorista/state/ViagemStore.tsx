@@ -24,7 +24,7 @@ import { ApiError, NetworkError } from "../../shared/api/client";
 import { useAuth } from "../../shared/auth/AuthContext";
 import { endpoints } from "../../shared/api/endpoints";
 import type { TripStudentOut, ViagemOut } from "../../shared/api/types";
-import { hapticoSucesso } from "../../shared/feedback/haptico";
+import { feedbackSincronizado } from "../../shared/feedback";
 import * as fila from "../../shared/offline/queue";
 import { assinar, cancelarPendente, drenarFila, enfileirarEvento } from "../../shared/offline/sync";
 import type { AcaoEvento } from "../../shared/offline/queue";
@@ -115,7 +115,9 @@ export function useViagemStore(viagemId: string) {
   useEffect(() => {
     const cancelar = assinar((evento) => {
       if (evento.tipo === "sincronizado" && evento.item.viagemId === viagemId) {
-        hapticoSucesso();
+        // Vibração, sem som: a fila drena quando o sinal volta, às vezes minutos
+        // depois do toque. Ver a docstring de `shared/feedback/index.ts`.
+        feedbackSincronizado();
         aplicarSeMontado((anterior) => {
           const pendentes = { ...anterior.pendentesPorTripStudent };
           const restantes = (pendentes[evento.item.tripStudentId] ?? []).filter((id) => id !== evento.item.eventId);

@@ -4,11 +4,16 @@
     "slug": "vaivem-motorista",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
-    "platforms": ["android"],
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "br.com.vaivem.motorista",
-      "permissions": ["INTERNET", "ACCESS_NETWORK_STATE"]
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
     },
     "plugins": [
       [
@@ -19,7 +24,9 @@
           }
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      "expo-audio",
+      "expo-asset"
     ]
   }
 }

@@ -1,8 +1,20 @@
 import React from "react";
+import { SafeAreaProvider, type Metrics } from "react-native-safe-area-context";
 import TestRenderer, { act } from "react-test-renderer";
 
 import { MenuAcoesAluno, temAcoesForaDeOrdem } from "../MenuAcoesAluno";
 import type { TripStudentEstado } from "../../../shared/api/types";
+
+/**
+ * O menu virou folha inferior no B8 e passou a usar `useSafeAreaInsets()` — ele
+ * encosta na borda de baixo da tela, onde vive a barra de navegação do Android.
+ * Fora de um `SafeAreaProvider` o hook estoura, então o teste fornece métricas
+ * fixas em vez de depender do aparelho.
+ */
+const METRICAS: Metrics = {
+  frame: { x: 0, y: 0, width: 360, height: 780 },
+  insets: { top: 24, left: 0, right: 0, bottom: 16 },
+};
 
 function renderizar(estado: TripStudentEstado) {
   const onDesfazerChegada = jest.fn();
@@ -12,14 +24,16 @@ function renderizar(estado: TripStudentEstado) {
 
   act(() => {
     arvore = TestRenderer.create(
-      <MenuAcoesAluno
-        visivel
-        nomeAluno="Ana Silva"
-        estado={estado}
-        onDesfazerChegada={onDesfazerChegada}
-        onMarcarAusente={onMarcarAusente}
-        onFechar={onFechar}
-      />
+      <SafeAreaProvider initialMetrics={METRICAS}>
+        <MenuAcoesAluno
+          visivel
+          nomeAluno="Ana Silva"
+          estado={estado}
+          onDesfazerChegada={onDesfazerChegada}
+          onMarcarAusente={onMarcarAusente}
+          onFechar={onFechar}
+        />
+      </SafeAreaProvider>
     );
   });
 

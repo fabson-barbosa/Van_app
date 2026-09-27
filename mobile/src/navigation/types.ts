@@ -7,6 +7,8 @@ export type RootStackParamList = {
   RotaDoDia: undefined;
   Viagem: { viagemId: string };
   FinalizarViagem: { viagemId: string };
+  /** Tema claro/escuro e som de confirmação (Bloco B8). */
+  Preferencias: undefined;
   // Responsável (Bloco B5)
   ListaFilhos: undefined;
   AcompanharFilho: { alunoId: string; nome?: string };

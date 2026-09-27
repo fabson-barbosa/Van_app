@@ -1161,3 +1161,239 @@ Dependências novas (versões do `bundledNativeModules.json` do SDK 54, porque
 - **Tema escuro** para a rota matinal: não feito.
 - Reordenar por arrastar (setas ▲▼ pedem dezenas de toques) e safe area nas
   telas do Responsável: fora do escopo desta rodada.
+
+---
+
+## Bloco B8 — Design do Motorista: tema claro/escuro, som de confirmação, reconstrução visual — **concluído (código); teste em aparelho PENDENTE**
+
+Pedido: "a interface ainda é bem ruim para enviar uma demo para o motorista —
+reconstrua o design (simples, funcional, bonito), sons para ele não precisar
+olhar o app, e modos claro e escuro".
+
+### Decisões tomadas com o usuário antes de codar
+
+Quatro perguntas, com as opções apresentadas lado a lado:
+
+1. **Direção visual: manter a paleta e reorganizar** (não a alternativa "neutro
+   com um único acento", nem "modo painel de alto contraste"). O creme, o verde
+   da marca e a linguagem de selos coloridos por estado continuam; o trabalho
+   ficou em hierarquia, espaçamento, densidade e no tema escuro.
+2. **Escopo: só o Motorista.** As telas do Responsável e o Login ficam na paleta
+   atual, sem tema escuro — com a consequência aceita explicitamente (ver
+   "Costura de escopo" abaixo, que é o que fez isso funcionar sem quebrar nada).
+3. **Sons: quatro sons semânticos + toggle**, abaixando o volume da música em vez
+   de pausá-la.
+4. **Tema: segue o Android + override manual**, persistido no aparelho.
+
+### O achado que definiu a arquitetura do bloco
+
+Antes de escolher uma cor, duas regras que o **CLAUDE.md §8 já exigia desde o
+B7** não estavam sendo cumpridas pelo código — e não tinham como ser, porque
+viviam só na prosa:
+
+- **Piso de 13sp**: sobravam `fontSize: 12.5` no `EstadoBadge`, `12` no
+  `PillSync`, `11.5` na tela de finalizar. O B7 declarou o piso e ajustou a
+  escala em `tokens.ts`, mas os componentes seguiram com números crus nos
+  `StyleSheet`, que nenhum teste observa e o TypeScript aceita.
+- **Contraste AA**: o B7 mediu à mão e anotou os valores num documento.
+  Documento não reprova build. Com **duas** paletas isso deixa de ser
+  verificável no olho: o `marca: #0f6e56` que dá 5,79:1 sobre branco dá **1,7:1**
+  sobre o cartão escuro, e esse erro é invisível para quem desenvolve num
+  monitor bom, em escritório.
+
+Daí a ordem de trabalho: **primeiro as travas, depois o desenho**. As duas
+paletas nasceram sob teste, não foram testadas depois.
+
+- `shared/theme/contraste.ts` — razão de contraste WCAG 2.1 (código de produção,
+  não utilitário de teste: é parte do contrato do design system).
+- `theme/__tests__/contraste.test.ts` — **75 asserções**: todo par texto/fundo que
+  o app desenha de fato, nas duas paletas, contra 4,5:1; as bordas que
+  *identificam* alvo de toque contra 3:1; e um teste de que as quatro famílias de
+  estado continuam distinguíveis **entre si** (sem isso, uma paleta "passaria"
+  achatando tudo para preto no branco).
+- `theme/__tests__/tipografia.test.ts` — varre os fontes do Motorista e dos
+  componentes compartilhados com `fs` e reprova: `fontSize` numérico cru, cor
+  hexadecimal crua (é o que congela a cor na folha de estilo e impede o tema
+  escuro) e pesos 500/600 (sem a família variável instalada, o Android antigo
+  arredonda para regular e a hierarquia desenhada no emulador desaparece no
+  aparelho do motorista).
+
+Três valores tiveram de ser calibrados por conta, não escolhidos: `dica` do tema
+claro (o valor "natural" `#68756f` dava 4,27:1 sobre o creme — reprovava na
+superfície mais usada do app) e `bordaAcao` nas duas paletas.
+
+### Costura de escopo — como "só o Motorista" funcionou sem quebrar o resto
+
+`src/shared/theme.ts` (um arquivo) virou `src/shared/theme/` com `index.ts`. Isso
+é o que permitiu não tocar em nenhuma tela fora do escopo: os ~20
+`import { cores } from "../theme"` que já existiam continuam resolvendo, e
+`cores` agora é um alias de `paletaClara`.
+
+O problema real era outro: os componentes **compartilhados** (`Botao56`,
+`EstadoBadge`, `LinkToque`, `PillSync`, `DialogoConfirmacao`) vivem dentro das
+telas do Responsável e passaram a ler `useTema()`. Com o Android em modo escuro,
+essas telas ficariam com botão verde-claro e selos escuros sobre cartão creme —
+pior que não ter tema nenhum. Resolvido com `TemaClaroFixo`/`comTemaClaro`
+(`theme/TemaContext.tsx`): o provider de verdade fica em `App.tsx` (estado único,
+persistido) e Login/Responsável são embrulhados num override que trava a
+subárvore em claro. Quando um bloco futuro redesenhar o Responsável, apagar o
+embrulho é a única mudança necessária.
+
+O modal de reautenticação usa a forma de componente **sem** barra de status:
+`expo-status-bar` resolve pela última instância montada, e um
+`<StatusBar style="dark">` num modal fechado roubaria a cor da barra do tema em
+vigor.
+
+### Pré-requisito do tema que quase passou batido
+
+`app.json` tinha `"userInterfaceStyle": "light"`. Com isso `useColorScheme()`
+devolve `"light"` **sempre**, e o modo "automático" nunca enxergaria o escuro do
+Android — o recurso principal do pedido sairia morto, sem erro nenhum. Trocado
+para `automatic`.
+
+### Sons
+
+`mobile/scripts/gerar_sons.py` gera os quatro WAVs (~70KB no total). Um gerador,
+e não arquivos baixados, porque binário não se revisa em diff: o *desenho* do som
+fica versionado (as notas, a duração, o envelope) e o arquivo é derivado.
+
+Decisões acústicas, todas ditadas pelo ambiente e não pelo gosto:
+
+- **700 Hz a 1,4 kHz.** Alto-falante de celular antigo não reproduz grave e o
+  ruído de motor/rua mora embaixo de 500 Hz — o "buzz" grave de erro, que é o
+  reflexo óbvio, seria justamente o que não se ouve dentro da van.
+- **Direção do intervalo carrega o significado**, casada com a máquina de
+  estados: sobe = registrado (`Cheguei`/`Checkin`); desce e resolve = terminal
+  (`Checkout`/`Ausente`/`Finalizar` — `entregue`/`ausente` não têm volta, §4);
+  glissando descendente = revertido; dissonância de semitom = recusado.
+- **Envelope de 6 ms** em cada segmento: corte seco em onda cheia estala, e um
+  clique é indistinguível de defeito.
+- `duckOthers`, não `doNotMix` (pausaria o rádio a cada casa) nem
+  `mixWithOthers` (o som sumiria embaixo da música — o que ele existe para
+  evitar).
+
+`shared/feedback/index.ts` fundiu som e vibração num vocabulário único
+(`feedbackAceito`/`feedbackConcluido`/`feedbackDesfeito`/`feedbackErro`), porque
+dois canais separados nos mesmos ~15 pontos de chamada garantiriam que um dia um
+deles ficaria para trás num toque novo. A tela diz *o que aconteceu*, não *como
+avisar*.
+
+**`feedbackSincronizado` não tem som, de propósito**: a fila drena quando o sinal
+volta, possivelmente minutos depois do toque, com a van em movimento e o
+motorista sem contexto nenhum do que estaria sendo confirmado. Som precisa estar
+amarrado a um comando que ele acabou de dar; fora disso é ruído aleatório, e
+ruído aleatório é o que faz desligar o recurso inteiro.
+
+O módulo **nunca lança** (mesmo contrato do háptico do B7 e do `ExpoPushSender`):
+aparelho sem áudio, módulo nativo ausente no Expo Go, sessão de áudio perdida —
+falha em silêncio. Se vazasse, derrubaria o handler do Cheguei por causa de um
+efeito sonoro. A falha de criação do player é memoizada: uma tentativa, não uma
+por toque.
+
+### O que mudou nas telas
+
+- **Nova tela `PreferenciasScreen`** (tema com amostra visual de cada paleta, som
+  com toggle, sair). O tema é escolhido vendo a paleta, não apostando nela. O
+  "Sair" **saiu do cabeçalho da Rota do Dia**: estava a poucos dp do botão que
+  inicia o turno, e derrubar a sessão com a fila offline dentro dela é a última
+  coisa que se quer por engano.
+- **`ViagemScreen`**: barra de progresso da rota no cabeçalho (responde "onde
+  estou" sem ler número); os quatro blocos de banner quase idênticos viraram um
+  componente (`Banner`) e no máximo um bloqueante aparece por vez — §7.2 e
+  conflito da fila são a mesma classe de problema, e mostrar os dois juntos
+  empurrava a lista para fora da tela; "Estou atrasado" subiu para o cabeçalho,
+  junto do dado de atraso que ele altera, saindo de 8dp do card da ação primária.
+- **`CardParadaAtual`**: ganhou rótulo de seção (um card sem título colado no
+  rodapé lê como barra de navegação); o número da parada virou disco à esquerda e
+  parou de disputar a primeira fixação do olho com o nome, que é o dado do §6; o
+  tempo de espera virou o dado dominante quando existe (parado na porta, é ele
+  que decide entre Checkin e Ausente, e era uma legenda cinza de 14sp); a ação
+  primária mostra o endereço como segunda linha em `aguardando`.
+- **`AlunoRow`**: a ordem da parada ganhou coluna própria alinhada entre as
+  linhas (é o número que casa com a sequência, e vinha colado no nome como
+  `"3. Arthur"`, obrigando a ler a linha inteira); aluno resolvido **deixou de ser
+  cartão** e recua sobre o papel da tela — o `opacity: 0.75` anterior reduzia
+  junto o contraste do texto e reprovava AA sem ninguém medir; a linha atual e a
+  não-sincronizada se distinguem por barra de acento de 3dp, apreensível na
+  varredura vertical.
+- **`MenuAcoesAluno`** virou folha inferior: nasce de um toque no selo da linha, e
+  uma caixa no centro da tela desconecta causa de efeito; a zona do polegar é
+  embaixo; e as duas ações passaram a ter pesos visuais distintos, o que a pilha
+  de três botões idênticos não mostrava.
+- **`DialogoConfirmacao`**: botões em coluna (lado a lado, o irreversível e a
+  saída tinham a mesma massa a 12dp um do outro) e a **guarda de 400ms ficou
+  visível** — botão travado sem explicação parece travamento do app, e o
+  motorista toca de novo, que é exatamente o reflexo que a guarda impede.
+- **`FinalizarViagemScreen`**: o alerta duro do §7.1 passou a **parecer** alerta
+  duro (preenchimento vermelho sólido, não faixa rosa clara com título do mesmo
+  peso do cabeçalho de rotina) e o placar entregues/ausentes/a-bordo virou três
+  números grandes.
+- **`RotaDoDiaScreen`**: status virou selo em vez de texto no fim de uma frase com
+  "·" no menor tamanho da tela; a viagem em andamento sobe e é destacada.
+- **`BarraUndo`**: a contagem virou barra que vaza (número exige ler; barra
+  encurtando é apreensível pela visão periférica, a única disponível dirigindo).
+  E usava `cores.tinta` como fundo com texto branco fixo — no tema escuro `tinta`
+  É quase branco, então a barra ficaria branca com texto branco.
+- **`EstadoBadge`**: 13sp (era 12,5), fundo opaco por paleta (era
+  `rgba(16,35,30,0.10)`, translúcido, logo sem contraste demonstrável) e o sufixo
+  "▾" virou marcador redondo — a seta prometia "expandir lista", e o que abre é
+  um menu de correção.
+- **`android_ripple`** nos alvos: o feedback de toque era `opacity: 0.85`, que em
+  aparelho antigo aparece depois de o dedo já ter saído. O ripple é desenhado
+  pelo Android no ponto do toque, sem passar pela ponte.
+
+### Testes
+
+`npm test` — **155 passando** (eram 57), 12 suítes. Novos: `contraste.test.ts`
+(75 asserções), `tipografia.test.ts` (varredura de fonte), `tema.test.ts`
+(resolução de modo, incluindo `useColorScheme()` devolvendo `null` em aparelho
+antigo sem tema escuro no sistema — cair em escuro ali seria surpresa para quem
+não pediu nada), `som.test.ts` (12 casos: preferência persistida, leitura que
+falha mantendo o padrão, `duckOthers` configurado uma vez só, `seekTo(0)` antes
+de `play()` — sem isso o segundo toque no mesmo som não emite nada —, e os dois
+casos de "nunca lança").
+
+`MenuAcoesAluno.test.tsx` precisou de `SafeAreaProvider` com métricas fixas: a
+folha inferior encosta na borda de baixo, onde vive a barra de navegação do
+Android, e passou a usar `useSafeAreaInsets()`.
+
+`npx tsc --noEmit` limpo · `npx expo-doctor` **18/18** · `npx expo export
+--platform android` bundla limpo (988 módulos) com os 4 WAVs resolvidos como
+asset — o export existe justamente para provar o que o typecheck não prova: que
+o `require()` dos sons resolve no Metro.
+
+### Dependências
+
+`expo-audio ~1.1.1`. O `npx expo install expo-audio` arrastou `expo-asset@57` e
+`expo-constants@57` (majors incompatíveis com o SDK 54) como peer transitiva,
+duplicando módulo nativo — `expo-doctor` pegou. Corrigido com
+`npx expo install expo-asset` (trouxe o `~12.0.13` correto). Junto,
+`expo install --fix` alinhou três derivas de patch que vinham de antes deste
+bloco (`expo` 54.0.36→54.0.37, `expo-constants`, `jest-expo`).
+
+### Pendências / TODOs explícitos
+
+- **Teste em aparelho físico — continua sendo a condição para fechar.** Este
+  bloco é sobre contraste ao sol, alcance do polegar e som audível dentro da van:
+  as três coisas só se avaliam no aparelho, dentro do veículo. O contraste está
+  provado por matemática (75 asserções) — o que não se prova assim é se o som
+  atravessa o ruído real do motor e se o verde claro do tema escuro não ofusca
+  de noite. Pendência herdada do B7, agora com mais superfície.
+- **Os quatro sons nunca foram ouvidos**, só verificados por programa (sem
+  clipping, sem estalo nas bordas, pico em 0,5). O desenho acústico é hipótese
+  fundamentada, não resultado medido — ajustar é editar uma linha em
+  `scripts/gerar_sons.py` e rodar de novo.
+- **Responsável e Login continuam sem tema escuro**, por decisão de escopo. Com o
+  Android em modo escuro, o motorista atravessa um Login claro para chegar a
+  telas escuras. Estender é mover o embrulho `comTemaClaro` — mas exige
+  redesenhar aquelas telas, que desenham com `cores` estático.
+- **A varredura de fonte cobre só Motorista + componentes compartilhados.** As
+  telas do Responsável ainda têm `fontSize: 11.5`/`12.5` e cores cruas; entram na
+  trava junto com o bloco que as redesenhar.
+- **Descoberta do selo** (herdada do B7): o marcador redondo é uma mitigação
+  melhor que a seta, mas continua sendo hipótese — verificar com motorista real
+  se ele encontra "Desfazer chegada" sem ser ensinado.
+- **`desfazer_ausente`** (herdada do B7): o diálogo previne o erro, não cria
+  saída. Mudança de máquina de estados (§4), território do B2.
+- Reordenar por arrastar (as setas ▲▼ ainda pedem dezenas de toques) e o tema nas
+  telas do Responsável: fora do escopo deste bloco.
