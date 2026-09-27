@@ -8,7 +8,28 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+# Pool dimensionado para Cloud Run + Cloud SQL, não para um processo só.
+#
+# Cada instância do Cloud Run tem o SEU pool. O padrão do SQLAlchemy
+# (pool_size=5 + max_overflow=10) permite 15 conexões por instância — com
+# `--max-instances=4` viram 60, e o menor tier do Cloud SQL (db-f1-micro) aceita
+# 25 no total, contando ainda o job de migration e o job do agendador. O
+# resultado seria "FATAL: remaining connection slots are reserved" sob pico, que
+# é exatamente quando o motorista está registrando embarque.
+#
+# 3 por instância (2 + 1 de folga) × 4 instâncias = 12, com margem confortável.
+# Ajustável por env var para quem subir num tier maior; ver `deploy/README.md`.
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,  # descarta conexão morta pelo idle timeout do Cloud SQL
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    # O Cloud SQL encerra conexões ociosas; reciclar antes evita que o
+    # `pool_pre_ping` pague um round-trip perdido em toda requisição de rota
+    # depois de um período sem tráfego.
+    pool_recycle=1800,
+    future=True,
+)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 

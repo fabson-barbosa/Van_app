@@ -286,6 +286,14 @@ dois temas, sempre.
 | **B6** | Hardening LGPD: retenção, expurgo, exportação de dados | fora desta rodada |
 | **B7** | UX do Motorista: confirmação das ações irreversíveis, card de parada atual, háptico, legibilidade | Opus |
 | **B8** | Design do Motorista: tema claro/escuro com AA verificado, sons de confirmação, reconstrução visual das telas | Opus |
+| **B9** | Deploy: Cloud Run + Cloud SQL, jobs de migration e do agendador, Cloud Scheduler, guarda de segredos | Opus |
+
+> **O agendador precisa de execução periódica para o §5 funcionar.** As
+> notificações de `chegada` e `iminencia` saem no próprio request; a de
+> **`preparo`** é gravada como linha agendada e só é entregue por
+> `scripts/processar_notificacoes.py`. Sem alguém invocando esse script em
+> intervalo curto (Cloud Scheduler em produção — ver `deploy/README.md`), um
+> terço da cascata não existe, e a API continua saudável em `/health`.
 
 ### Portão de validação antes do B2
 

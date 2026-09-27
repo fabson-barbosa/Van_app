@@ -1,0 +1,22 @@
+# Fora da imagem: nada aqui é necessário para rodar a API, as migrations ou o
+# agendador — e `.env` em particular NÃO pode entrar, senão as credenciais de
+# desenvolvimento viajam na imagem e vencem as variáveis do Cloud Run
+# (pydantic-settings lê o arquivo, ver `app/core/config.py`).
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Os testes ficam fora da imagem de produção de propósito: rodam no CI
+# (.github/workflows/ci.yml), contra um Postgres real.
+tests/
+
+*.md

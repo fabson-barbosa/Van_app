@@ -1397,3 +1397,160 @@ bloco (`expo` 54.0.36→54.0.37, `expo-constants`, `jest-expo`).
   saída. Mudança de máquina de estados (§4), território do B2.
 - Reordenar por arrastar (as setas ▲▼ ainda pedem dezenas de toques) e o tema nas
   telas do Responsável: fora do escopo deste bloco.
+
+---
+
+## Bloco B9 — Deploy: Cloud Run + Cloud SQL — **configuração completa e verificada em container; provisionamento no GCP PENDENTE (exige credenciais do usuário)**
+
+Pedido: tornar esta primeira versão funcional e pronta para testes. O passo
+escolhido foi tirar o backend da máquina de desenvolvimento — CLAUDE.md §3 já
+dizia "Deploy: Cloud Run", e **não existia nenhuma configuração de deploy no
+repositório**. Stack confirmada com o usuário: Cloud Run + Cloud SQL.
+
+### O buraco funcional que este bloco fecha
+
+A cascata de notificações do §5 estava **2 de 3 funcionando**, e isso não estava
+registrado em lugar nenhum como defeito:
+
+| Notificação | Como sai | Antes deste bloco |
+|---|---|---|
+| `chegada` | síncrona, dentro do request | funcionava |
+| `iminencia` | síncrona, dentro do request | funcionava |
+| `preparo` ("faltam ~X min") | linha `agendado` na tabela | **nunca disparava** |
+
+`scripts/processar_notificacoes.py` existe desde o B3, é idempotente e tem teste
+de corrida — mas **nada o invocava periodicamente**. O PROGRESSO do B3 registrou
+a cadência como "decisão de deploy"; a decisão nunca foi tomada, e o TODO
+envelheceu parecendo cosmético. Os testes não pegam porque chamam a função
+direto. É justamente o aviso que serve para o responsável preparar a criança.
+
+### Dois achados que enxugaram a infraestrutura antes de escrever qualquer coisa
+
+1. **Redis nunca foi usado.** `redis_url` existe em `config.py` desde o Sprint 0 e
+   nenhum módulo de `app/` ou `scripts/` importa `redis`. Memorystore saiu do
+   desenho: ~US$35/mês mais um VPC connector para uma dependência inexistente.
+   O campo ficou no `Settings` (o `.env.example` o documenta) com comentário
+   dizendo que o deploy não o provisiona.
+2. **Não existia script de criação dos papéis do banco.** O `vaivem`/`vaivem_app`
+   local foi montado à mão nas sessões do B1/B2 e só existia descrito em prosa
+   aqui no PROGRESSO — sendo que é exatamente o que faz os 45 testes de RLS
+   valerem algo. Virou `deploy/sql/001_papeis_e_extensoes.sql`, aplicado ao
+   Cloud SQL e ao ambiente local.
+
+### O que foi criado
+
+- **`backend/Dockerfile`** — uma imagem, três pontos de entrada (API,
+  `alembic upgrade head`, agendador). Uma e não três porque o agendador importa
+  `app.services.agendador` e o job de migration importa `app.core.config`:
+  separá-las criaria três conjuntos de dependências que divergem, e a divergência
+  apareceria no envio de uma notificação, não no build. Só wheels
+  (`--only-binary=:all:`), sem toolchain de compilação; usuário sem privilégio;
+  `--workers 1` porque a escala é horizontal e cada worker teria o seu pool.
+- **`backend/.dockerignore`** — `.env` fora, explicitamente: `pydantic-settings`
+  lê o arquivo, então um `.env` dentro da imagem venceria as variáveis do Cloud
+  Run e as credenciais de desenvolvimento viajariam no artefato.
+- **`deploy/sql/001_papeis_e_extensoes.sql`** — extensões, papéis, GRANTs e
+  `ALTER DEFAULT PRIVILEGES` (sem o último, toda migration futura que adiciona
+  tabela exigiria um GRANT manual, e o sintoma seria `permission denied` em
+  produção, não no deploy).
+- **`deploy/provisionar.sh`** — etapas nomeadas e reexecutáveis
+  (`apis`, `registry`, `sql`, `segredos`, `papeis`, `iam`, `build`, `jobs`,
+  `migrar`, `deploy`, `scheduler`, `verificar`), cada decisão comentada no ponto
+  onde ela é tomada.
+- **`deploy/README.md`** — runbook, decisões e o que está e não está provado.
+- **`backend/README.md`** reescrito: era um esboço do Sprint 0 que não
+  documentava nada do fluxo real.
+
+### Endurecimento do backend, exigido pelo deploy
+
+- **Guarda de segredos (`app/core/config.py`).** A aplicação recusa subir com
+  `ENV != development` se o `jwt_secret` for o valor de exemplo ou tiver menos de
+  32 caracteres. É a pior configuração incorreta possível neste app e a mais
+  silenciosa: o `jwt_secret` assina os tokens que carregam `tenant_id` e `role`, e
+  o valor padrão está no `.env.example`, versionado e público — com ele em
+  produção, qualquer pessoa forja um token de admin de qualquer tenant e o RLS
+  não protege nada, porque `get_tenant_db` passa a setar o `app.tenant_id` que o
+  atacante escolheu. Sem a guarda, um deploy que esquecesse de montar o segredo
+  subiria saudável, responderia 200 no `/health` e passaria todo teste de fumaça.
+  `is_development` é allowlist, não denylist: um `ENV=prod` digitado errado erra
+  para o lado seguro.
+- **Pool dimensionado para Cloud Run (`app/core/db.py`).** Cada instância tem o
+  SEU pool; o padrão do SQLAlchemy (5 + 10) daria 60 conexões com
+  `--max-instances=4`, e o `db-f1-micro` aceita 25 — `FATAL: remaining connection
+  slots are reserved` sob pico, exatamente quando o motorista registra embarque.
+  Agora 2 + 1 por instância (12 no total), configurável por env var, com
+  `pool_recycle=1800` para o idle timeout do Cloud SQL.
+- **`tests/test_config.py`** (10 casos) trava as duas coisas, incluindo um teste
+  que amarra `db_pool_size + db_max_overflow` ao `--max-instances` do
+  `provisionar.sh`: os dois arquivos são um único cálculo repartido, e quem
+  aumentar o pool sem olhar o deploy esgota as conexões em produção.
+
+### Verificado de verdade (imagem rodando contra o Postgres do docker-compose)
+
+Em `ENV=production`, com segredo real, os três pontos de entrada:
+
+| Verificação | Resultado |
+|---|---|
+| `docker build` | ✅ sem toolchain de compilação |
+| Job de migration (`alembic upgrade head`, como owner) | ✅ |
+| Job do agendador | ✅ processou 28 notificações vencidas em 483 tenants |
+| `GET /health` | ✅ 200 |
+| `POST /api/auth/login` | ✅ 200, JWT emitido |
+| `GET /api/viagens` autenticado (depende de RLS) | ✅ só as viagens do tenant do motorista |
+| `ENV=production` sem `JWT_SECRET` | ✅ recusa subir |
+| SQL de papéis aplicado 2× no banco local | ✅ idempotente; `vaivem_app` com `rolbypassrls = f` |
+| `pytest` / `pytest -m integration` | ✅ 109 / 45 |
+
+**Um bug de produção foi encontrado exatamente aqui, e não apareceria de outra
+forma:** o job do agendador quebrava com `ModuleNotFoundError: No module named
+'app'`, porque `python scripts/x.py` coloca `sys.path[0]` em `/app/scripts`.
+Corrigido com `PYTHONPATH=/app` na imagem. Sem rodar o container, isso se
+manifestaria em produção como "o aviso de preparo não chega", com a API saudável
+em `/health` o tempo todo — o mesmo padrão de falha silenciosa do gate B1→B2.
+Era a mesma lacuna do `PYTHONPATH=.` que havia sido sinalizada como pendência de
+documentação depois do B5; ela tinha consequência funcional, não só de docs.
+
+### Decisões de infraestrutura registradas
+
+- **`--allow-unauthenticated`** é necessário: o app é nativo e não tem identidade
+  do Google Cloud. A autenticação é o JWT da aplicação e o isolamento é o RLS.
+- **Cron do agendador `* 5-9,11-19 * * 1-5`** — a cada minuto porque o `preparo` é
+  agendado para um instante calculado, e uma janela de 5 min atrasaria em até
+  5 min um aviso cuja premissa é "faltam ~5-10 min", tornando-o falso. Restrito a
+  dias úteis em horário de rota porque transporte escolar não roda às 3h: corta
+  ~70% das execuções e mantém tudo na camada gratuita do Cloud Run.
+- **Cloud Run Job em vez de endpoint HTTP** para o agendador: não adiciona
+  superfície pública à API.
+- **`--min-instances=1`** (~US$10-15/mês) para não haver cold start de ~5s no
+  primeiro toque do dia; documentado como trocável por 0.
+- **Os jobs recebem `JWT_SECRET`** mesmo sem usar token, porque `config.py` valida
+  no import e `migrations/env.py` importa as settings.
+- **HA (`--availability-type`) ficou em zonal**: dobra o custo e cobre queda de
+  zona inteira, que não é o risco relevante num piloto. Backup diário, sim.
+
+### Pendências / TODOs explícitos
+
+- **Provisionar no GCP — não feito, e não podia ser.** Não havia `gcloud` nem
+  credenciais no ambiente. Nada específico do Google Cloud está provado: socket
+  do Cloud SQL, montagem de segredos, permissões de IAM, disparo do Scheduler.
+  O script foi escrito para ser rodado etapa por etapa, conferindo cada saída.
+- **`eas init`** (do usuário, um comando, gratuito): sem `projectId` o
+  `registrarPushToken()` desiste em silêncio e **nenhum** push funciona, nem os
+  dois que já estavam prontos. Continua sendo o maior retorno por esforço.
+- **Ninguém cadastra dados.** Rotas, alunos, paradas e viagens só nascem de
+  `seed_demo.py`, porque o Gestor é mockup (§10). Para um piloto com um motorista
+  conhecido, rodar o seed contra o Cloud SQL resolve; para um segundo cliente,
+  não — aí o Gestor deixa de estar fora de escopo. **Decisão de produto, não
+  tarefa.**
+- **Teste em aparelho ponta a ponta** (B4, B5, B7, B8 acumulados): viagem
+  inteira, finalizar com aluno a bordo, modo avião com 6 eventos, os 4 sons
+  dentro da van, o tema escuro à noite.
+- **`pytest` está em `requirements.txt`** e portanto na imagem de produção (~5MB
+  inúteis). Separar em `requirements-dev.txt` é limpeza, não risco — não feito
+  para não mexer na estrutura de dependências no mesmo bloco do deploy.
+- **Sem CI de deploy.** O `ci.yml` do B7 roda testes; publicar continua sendo ato
+  manual via `provisionar.sh`. Automatizar depois de o primeiro deploy manual
+  provar o caminho.
+- **Retenção/expurgo LGPD (§7.5)**: continua no B6. O deploy não muda isso, mas
+  agora há dado real de criança num banco gerenciado — o que torna o B6 mais
+  urgente do que era quando tudo rodava em `localhost`.
